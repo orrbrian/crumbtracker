@@ -301,7 +301,7 @@ $$('.foods-tabs .tab').forEach(tab => {
     $$('.foods-panel').forEach(p => p.classList.add('hidden'));
     $('#panel-' + tab.dataset.tab).classList.remove('hidden');
     if (tab.dataset.tab === 'custom') renderCustomFoods();
-    if (tab.dataset.tab === 'meals')  renderMeals();
+    if (tab.dataset.tab === 'meals')  renderMealLibrary();
     if (tab.dataset.tab === 'recent') renderRecentFoods();
   });
 });
@@ -796,7 +796,7 @@ mealForm.addEventListener('keydown', (e) => {
 
 $('#btn-new-meal').addEventListener('click', () => openMealModal());
 
-async function renderMeals() {
+async function renderMealLibrary() {
   const meals = await CT.db.listMeals();
   const el = $('#meals-results');
   if (!meals.length) {
@@ -839,7 +839,7 @@ async function renderMeals() {
       e.stopPropagation();
       if (!confirm(`Delete meal "${meal.name}"?`)) return;
       await CT.db.deleteMeal(meal.id);
-      renderMeals();
+      renderMealLibrary();
     });
     actions.appendChild(delBtn);
     row.addEventListener('click', () => openAddModal(hydrated));
@@ -1010,7 +1010,7 @@ mealForm.addEventListener('submit', async (e) => {
   });
   mealModal.classList.add('hidden');
   toast('Meal saved');
-  renderMeals();
+  renderMealLibrary();
 });
 
 // ------- EXERCISE MODAL -------

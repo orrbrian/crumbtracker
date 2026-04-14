@@ -247,11 +247,11 @@ body { display: flex; }
 .primary-btn:hover { background: var(--accent-2); border-color: var(--accent-2); }
 
 .totals-bar {
-  flex: 1;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   min-width: 0;
+  margin-bottom: 12px;
 }
 .total-card {
   background: var(--bg-2);
