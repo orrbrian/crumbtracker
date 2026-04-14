@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <title>Viewfinder</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100vh;
+      background: transparent;
+      font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+      color: #e6ebf2;
+      overflow: hidden;
+      user-select: none;
+    }
+    .vf {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .vf-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 10px;
+      background: rgba(21, 26, 33, 0.94);
+      border: 1px solid #262d38;
+      border-bottom: 2px solid #7dd3a0;
+      -webkit-app-region: drag;
+      user-select: none;
+      flex: 0 0 auto;
+    }
+    .vf-toolbar .title {
+      flex: 1;
+      color: #8a95a5;
+      font-size: 12px;
+      letter-spacing: 0.2px;
+    }
+    .vf-toolbar button {
+      -webkit-app-region: no-drag;
+      background: transparent;
+      border: 1px solid #262d38;
+      color: #e6ebf2;
+      padding: 5px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-family: inherit;
+    }
+    .vf-toolbar button:hover { background: #1c222b; }
+    .vf-toolbar button.primary {
+      background: #7dd3a0;
+      color: #0c1712;
+      border-color: #7dd3a0;
+      font-weight: 600;
+    }
+    .vf-toolbar button.primary:hover { background: #5fb185; border-color: #5fb185; }
+    .vf-toolbar button:disabled { opacity: 0.6; cursor: default; }
+    .vf-body {
+      flex: 1;
+      position: relative;
+      pointer-events: none;
+    }
+    .vf-body::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border: 3px dashed #7dd3a0;
+      box-sizing: border-box;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="vf">
+    <div class="vf-toolbar" id="vf-toolbar">
+      <span class="title">Drag to position • Resize the edges • then Capture</span>
+      <button id="vf-cancel" type="button">Cancel</button>
+      <button id="vf-capture" class="primary" type="button">Capture</button>
+    </div>
+    <div class="vf-body" id="vf-body"></div>
+  </div>
+  <script src="viewfinder.js"></script>
+</body>
+</html>

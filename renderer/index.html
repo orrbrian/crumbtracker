@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' https: data: blob:; connect-src 'self' blob: https://world.openfoodfacts.org https://*.openfoodfacts.org; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; media-src 'self' blob:;" />
+  <title>CrumbTracker</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <nav class="sidebar">
+    <div class="brand">Crumb<span>Tracker</span></div>
+    <button class="nav-btn active" data-view="diary">Diary</button>
+    <button class="nav-btn" data-view="foods">Foods</button>
+    <button class="nav-btn" data-view="progress">Progress</button>
+    <button class="nav-btn" data-view="settings">Settings</button>
+    <button class="nav-btn" data-view="help">Help</button>
+    <button class="nav-btn" data-view="about">About</button>
+    <div class="nav-spacer"></div>
+    <div class="mascot" title="Everest &mdash; El Jefe">
+      <img src="assets/mascot-small.png" alt="El Jefe" />
+      <span class="mascot-name">El Jefe</span>
+    </div>
+    <div class="nav-foot">Local · v0.5.0</div>
+  </nav>
+
+  <main class="content">
+    <!-- DIARY -->
+    <section class="view" id="view-diary">
+      <header class="view-head">
+        <div class="date-nav">
+          <button id="date-prev" class="icon-btn">‹</button>
+          <input type="date" id="date-picker" />
+          <button id="date-next" class="icon-btn">›</button>
+          <button id="date-today" class="ghost-btn">Today</button>
+        </div>
+        <div class="totals-bar" id="totals-bar"></div>
+      </header>
+      <div class="quip hidden" id="quip"></div>
+
+      <div class="meals" id="meals"></div>
+
+      <section class="exercise" id="exercise-section">
+        <header class="ex-head">
+          <h3>Exercise <span class="kcal" id="ex-total">0 kcal burned</span></h3>
+          <button class="ghost-btn small" id="btn-add-exercise" type="button">+ Add</button>
+        </header>
+        <div id="exercise-list"></div>
+      </section>
+
+      <section class="notes">
+        <header class="notes-head">
+          <h3>Notes</h3>
+          <span class="notes-status" id="notes-status"></span>
+        </header>
+        <textarea id="notes-text" placeholder="How you felt, workouts, cravings, anything you want to remember about today…"></textarea>
+      </section>
+    </section>
+
+    <!-- FOODS -->
+    <section class="view hidden" id="view-foods">
+      <header class="view-head">
+        <h2>Foods</h2>
+        <div class="spacer"></div>
+        <button id="btn-new-food" class="primary-btn">+ Custom food</button>
+      </header>
+
+      <div class="foods-tabs">
+        <button class="tab active" data-tab="search">Search</button>
+        <button class="tab" data-tab="custom">My foods</button>
+        <button class="tab" data-tab="meals">Meals</button>
+        <button class="tab" data-tab="recent">Recent</button>
+      </div>
+
+      <div class="foods-panel" id="panel-search">
+        <div class="search-row">
+          <input id="search-input" type="text" placeholder="Search Open Food Facts…" />
+          <button id="search-btn" class="primary-btn">Search</button>
+          <button id="scan-btn" class="ghost-btn" title="Scan a UPC/EAN barcode with the camera.">📷 Barcode</button>
+          <button id="scan-label-btn" class="ghost-btn" title="Scan a nutrition facts label with OCR (camera or image).">📷 Label</button>
+        </div>
+        <div class="results" id="search-results"></div>
+      </div>
+
+      <div class="foods-panel hidden" id="panel-custom">
+        <div class="results" id="custom-results"></div>
+      </div>
+
+      <div class="foods-panel hidden" id="panel-meals">
+        <div class="meals-head">
+          <button id="btn-new-meal" class="primary-btn">+ New meal</button>
+        </div>
+        <div class="results" id="meals-results"></div>
+      </div>
+
+      <div class="foods-panel hidden" id="panel-recent">
+        <div class="results" id="recent-results"></div>
+      </div>
+    </section>
+
+    <!-- PROGRESS -->
+    <section class="view hidden" id="view-progress">
+      <header class="view-head">
+        <h2>Progress</h2>
+        <div class="spacer"></div>
+        <div class="range-toggle" id="range-toggle">
+          <button data-range="7">1w</button>
+          <button data-range="14">2w</button>
+          <button data-range="30" class="active">1m</button>
+          <button data-range="90">3m</button>
+          <button data-range="180">6m</button>
+          <button data-range="365">1y</button>
+        </div>
+      </header>
+
+      <div class="progress-actions">
+        <button id="btn-log-weight" class="primary-btn" type="button" title="Record your current weight. Plan line re-anchors at your latest weigh-in.">+ Log weight</button>
+        <label class="plan-ex-field" title="Extra calories per day burned beyond your activity multiplier. Bumps the plan's daily deficit.">
+          Planned exercise
+          <input id="plan-exercise" type="number" min="0" step="10" value="0" />
+          <span>kcal/day</span>
+        </label>
+      </div>
+      <div class="progress-stats" id="progress-stats"></div>
+      <div class="chart-wrap" id="progress-chart"></div>
+      <div class="chart-legend">
+        <span><span class="chart-swatch plan"></span>Plan</span>
+        <span><span class="chart-swatch actual"></span>Weigh-ins</span>
+        <span><span class="chart-swatch today"></span>Today</span>
+      </div>
+      <div class="weighin-list" id="weighin-list"></div>
+    </section>
+
+    <!-- HELP / DOCS -->
+    <section class="view hidden" id="view-help">
+      <header class="view-head"><h2>Help &amp; documentation</h2></header>
+      <div class="docs">
+        <nav class="docs-toc">
+          <a href="#doc-start">Getting started</a>
+          <a href="#doc-diary">Diary</a>
+          <a href="#doc-foods">Foods</a>
+          <a href="#doc-meals">Meals</a>
+          <a href="#doc-progress">Progress</a>
+          <a href="#doc-settings">Settings</a>
+          <a href="#doc-formulas">Formulas</a>
+          <a href="#doc-privacy">Data &amp; privacy</a>
+          <a href="#doc-shortcuts">Shortcuts &amp; tips</a>
+        </nav>
+        <div class="docs-body">
+          <article id="doc-start">
+            <h3>Getting started</h3>
+            <p>Open <b>Settings</b> and fill in the <b>Body &amp; activity</b> section (weight, height, age, sex, activity). This unlocks BMI/BMR/TDEE and the Progress projection.</p>
+            <p>Pick a calorie target — type one in manually, or use the TDEE buttons (<em>Use TDEE</em>, <em>TDEE − 500</em>, <em>TDEE + 300</em>) to auto-fill based on your stats.</p>
+          </article>
+
+          <article id="doc-diary">
+            <h3>Diary</h3>
+            <p>The Diary view shows one day at a time. Navigate with the arrows, "Today", or the date picker.</p>
+            <ul>
+              <li><b>Totals bar</b> — four cards showing Calories / Protein / Carbs / Fat vs your targets, with a progress bar each. Bars turn red when you go over.</li>
+              <li><b>Over-budget quip</b> — a small italic line appears under the totals when you exceed calories. Light ribbing ≤10% over, sharper up to 25%, dry past 50%. Deterministic per (date, tier) so it doesn't flicker as you log.</li>
+              <li><b>Meal sections</b> — Breakfast, Lunch, Dinner, Snacks. Click <em>+ Add food</em> in a section header to jump to Foods with that section pre-selected. (Not to be confused with the <em>Meals</em> tab under Foods, which is for composed recipes — see that section below.)</li>
+              <li><b>Amount vs servings</b> — when adding a food, the <em>Amount</em> input (g/ml) and <em>Servings</em> input are linked. Edit either; macros recalculate live. Last amount is remembered per food for next time.</li>
+              <li><b>Exercise</b> — logged separately from meals. Calories burned never subtract from your "Calories in" total; they show up as <em>Net calories</em> in the right sidebar.</li>
+              <li><b>Notes</b> — freeform text per day. Auto-saves 400 ms after you stop typing.</li>
+              <li><b>Right sidebar</b> — shows the macro pie chart (protein/carbs/fat as % of calories) for the current diary date, plus the <em>Net calories</em> card when exercise is logged. On days with nothing logged, <em>El Jefe</em> greets you there instead.</li>
+            </ul>
+          </article>
+
+          <article id="doc-foods">
+            <h3>Foods</h3>
+            <ul>
+              <li><b>Search</b> — queries Open Food Facts. Typing a barcode (8/12/13/14 digits) also runs an exact lookup; that result gets an <em>exact match</em> badge and is pinned to the top.</li>
+              <li><b>📷 Barcode scan</b> — opens the webcam and reads UPC/EAN barcodes with ZXing. The live feed does continuous detection — aim and wait.
+                <ul>
+                  <li><b>📁 Image</b> — decode a barcode from a saved photo or screenshot. Routes through the crop step.</li>
+                  <li><b>🖥 Desktop snip</b> — see below. Works for both barcode and label scanners.</li>
+                  <li><b>Type</b> — manually enter the digits if the camera can't focus.</li>
+                </ul>
+              </li>
+              <li><b>📷 Label scan (OCR)</b> — point the camera at a Nutrition Facts panel and click Capture, or upload an image. Tesseract.js reads the text locally; a parser pulls out calories / protein / carbs / fat / serving size. Values pre-fill a Custom Food form where you confirm name/brand and save. Accuracy is best on flat, well-lit, unfolded labels.</li>
+              <li><b>✂️ Crop step</b> — after <em>Image</em>, <em>Capture</em>, or <em>Desktop snip</em>, a green frame appears over the image. Drag the rectangle or its corners to cover just the barcode or nutrition panel, then click <em>Scan region</em>. Tight crops dramatically improve both barcode and OCR accuracy. Or click <em>Use full image</em> to skip cropping.</li>
+              <li><b>🖥 Desktop snip</b> — CrumbTracker hides, and a small always-on-top transparent window appears with a dashed green viewfinder and a draggable toolbar. Position and resize it over anything on your desktop (Amazon tab, PDF, another app's window, etc.), then Capture. The pixels under the frame feed into the crop step. <b>Enter</b> captures, <b>Esc</b> cancels.</li>
+              <li><b>Phone as a camera</b> — any phone whose camera appears as a video device in the OS will show up in the camera dropdown:
+                <ul>
+                  <li>macOS: iPhone's Continuity Camera (iOS 16+/macOS 13+) appears automatically.</li>
+                  <li>Windows: install a virtual-webcam app (e.g. <em>DroidCam</em>, <em>Iriun</em>, or <em>Camo</em>) plus its phone app, then select it from the dropdown.</li>
+                </ul>
+              </li>
+              <li><b>Custom foods</b> — type nutrition values in directly. Attach a barcode so future scans resolve locally without hitting the API.</li>
+              <li><b>Food images</b> — custom foods have an image picker at the top of the form (📁 Choose, 📋 Paste, or drop a file; Ctrl+V also pastes). <em>Paste</em> works with Windows Snipping Tool captures and with <em>Copy Image</em> from a browser (both bitmap and image URL clipboard payloads are handled). Search-result foods show an ✎ on their thumbnail inside the add-to-diary modal — click or drop to replace. Images are downscaled to 400 px JPEG data URLs and stored in the food record, so they travel with the food and work offline.</li>
+              <li><b>Nutrition missing?</b> When a food has 0 kcal, the add-modal auto-expands a "Nutrition label" section. Enter values once — they're saved back to the food for next time.</li>
+              <li><b>(est.)</b> tag — serving size was inferred from the product's category, not a real label. Double-check before logging.</li>
+              <li><b>Recent</b> — foods you've logged recently, ready to re-add.</li>
+            </ul>
+          </article>
+
+          <article id="doc-meals">
+            <h3>Meals</h3>
+            <p>A <b>meal</b> is a saved recipe composed of foods you've already added — e.g. a sandwich built from bread, lettuce, turkey, and mayo. Use this when the same combination comes up repeatedly and you don't want to log each ingredient every time.</p>
+            <ul>
+              <li><b>Create</b> — open the <em>Meals</em> tab under Foods, click <em>+ New meal</em>. Give it a name and (optionally) an image, then add ingredients one at a time: pick a food from the dropdown, enter how many servings of that food the meal uses, click <em>+ Add</em>. Each ingredient row's servings can be edited inline; totals at the bottom update live.</li>
+              <li><b>Log to diary</b> — click <em>+ Add</em> on a saved meal. It goes in as a <em>single</em> diary entry (e.g. "Turkey sandwich · 1 serving · 410 kcal"), not as N separate ingredient rows. The entry snapshots totalled macros at the moment you log it.</li>
+              <li><b>Edit vs. history</b> — editing a meal later (adjusting an ingredient's servings, swapping a food, etc.) never changes previously logged diary entries. Past meals are frozen at the macros they had when logged.</li>
+              <li><b>Upstream food changes</b> — if you fix an ingredient food's nutrition (e.g. correct the bread's calorie count), future meal additions will use the updated value automatically, because meals reference ingredients by ID.</li>
+              <li><b>Missing ingredients</b> — if you delete a food that's still used by a meal, that meal shows a <em>⚠ N missing</em> note. It will still log, but totals will exclude the missing items until you edit the meal and remove or replace them.</li>
+              <li><b>Servings vs. amount</b> — meal ingredients are counted in the ingredient food's own servings, not grams. If a food's serving size is 30g and you use half a serving in your meal, enter <code>0.5</code>.</li>
+            </ul>
+          </article>
+
+          <article id="doc-progress">
+            <h3>Progress</h3>
+            <ul>
+              <li><b>Plan line</b> (grey dashed) — projected weight assuming you hit your calorie target every day. Slope is <code>(TDEE + planned exercise − target) / 7700 kcal/kg</code>.</li>
+              <li><b>Weigh-ins</b> (green dots, connected when ≥ 2) — your actual data. Click <em>+ Log weight</em> to record one. The plan line re-anchors at your latest weigh-in, and your body profile's current weight auto-updates to the most recent entry.</li>
+              <li><b>Planned exercise</b> (kcal/day) — extra calories your plan assumes you burn beyond TDEE. Bumps the deficit; steepens the plan line. Saved between sessions.</li>
+              <li><b>Range</b> — 1w / 2w / 1m / 3m / 6m / 1y. Window is centered on today.</li>
+              <li><b>Stats row</b> — Current weight, Plan rate (kg or lb per week), projected weight at end of range, and Net change. Hover each card for the formula behind it.</li>
+              <li><b>Weigh-in list</b> below the chart, newest first; each row has a delete button.</li>
+            </ul>
+          </article>
+
+          <article id="doc-settings">
+            <h3>Settings</h3>
+            <ul>
+              <li><b>Daily targets</b> — calorie and macro goals (grams). Totals bar progress tracks against these.</li>
+              <li><b>Body &amp; activity</b> — drives BMR, TDEE, and BMI. Auto-saves as you type.</li>
+              <li><b>Units</b> — toggle lb/ft·in ↔ kg/cm at any time. Existing values convert automatically.</li>
+              <li><b>Reset</b> — wipes every object store (foods, entries, settings, notes, weigh-ins, exercise). Double-confirmed. Useful before sharing the app.</li>
+            </ul>
+          </article>
+
+          <article id="doc-formulas">
+            <h3>Formulas</h3>
+            <ul>
+              <li><b>BMI</b> = weight(kg) / height(m)². Categories: &lt;18.5 Underweight · 18.5–24.9 Normal · 25–29.9 Overweight · 30+ High.</li>
+              <li><b>BMR</b> — Mifflin–St Jeor.
+                <br>Male: <code>10·kg + 6.25·cm − 5·age + 5</code>
+                <br>Female: <code>10·kg + 6.25·cm − 5·age − 161</code></li>
+              <li><b>TDEE</b> = BMR × activity multiplier
+                (Sedentary 1.2 · Light 1.375 · Moderate 1.55 · Active 1.725 · Very active 1.9).</li>
+              <li><b>Weight change</b> — 7700 kcal ≈ 1 kg (3500 kcal ≈ 1 lb). A rough rule; real humans vary.</li>
+              <li><b>Macro calories</b> — Protein 4 kcal/g · Carbs 4 kcal/g · Fat 9 kcal/g. Used for the sidebar pie chart.</li>
+            </ul>
+          </article>
+
+          <article id="doc-privacy">
+            <h3>Data &amp; privacy</h3>
+            <p>Everything is stored locally in IndexedDB inside this app's user-data directory. Object stores: <code>foods</code>, <code>entries</code>, <code>settings</code>, <code>notes</code>, <code>weights</code>, <code>exercise</code>, <code>meals</code>.</p>
+            <p>The app only talks to the network for Open Food Facts (<code>world.openfoodfacts.org</code>, <code>search.openfoodfacts.org</code>) when you search or scan a barcode. Nothing you log leaves your machine.</p>
+          </article>
+
+          <article id="doc-shortcuts">
+            <h3>Shortcuts &amp; tips</h3>
+            <ul>
+              <li><b>Enter</b> in the search box runs the search. If the query is a valid-length all-digit string (8/12/13/14), an exact barcode lookup also runs in parallel.</li>
+              <li>In the add-food modal, typing a new <b>Amount</b> recomputes Servings automatically. Works the other way too.</li>
+              <li>Scanning the same barcode twice hits the local cache on the second scan — instant, no network.</li>
+              <li>Desktop snip viewfinder: <b>Enter</b> captures, <b>Esc</b> cancels.</li>
+              <li>Hover most numbers and buttons for a tooltip explaining what they mean.</li>
+              <li>Open DevTools with <b>Ctrl+Shift+I</b> if something looks off.</li>
+              <li><b>Ctrl+R</b> reloads the renderer. Changes to Electron's main process (e.g. IPC handlers) require a full app restart instead.</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ABOUT -->
+    <section class="view hidden" id="view-about">
+      <div class="about-wrap">
+        <img class="about-logo" src="assets/alcorr.png" alt="Alcorr Software, Inc." />
+        <h1 class="about-title">CrumbTracker</h1>
+        <div class="about-sub">Local calorie &amp; nutrition tracker</div>
+        <div class="about-version">Version 0.6.0</div>
+        <div class="about-meta">
+          <div>Built by <b>Alcorr Software, Inc.</b></div>
+          <div>All data stays on this machine.</div>
+          <div>Nutrition data from <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a>.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="view hidden" id="view-settings">
+      <header class="view-head"><h2>Settings</h2></header>
+
+      <div class="settings-section">
+        <h3>Daily targets</h3>
+        <form class="settings-form" id="settings-form">
+          <label>Daily calories <input type="number" name="calories" min="0" /></label>
+          <label>Protein (g) <input type="number" name="protein" min="0" /></label>
+          <label>Carbs (g) <input type="number" name="carbs" min="0" /></label>
+          <label>Fat (g) <input type="number" name="fat" min="0" /></label>
+          <button class="primary-btn" type="submit">Save targets</button>
+        </form>
+      </div>
+
+      <div class="settings-section">
+        <h3>Body &amp; activity</h3>
+        <form class="body-form" id="body-form" autocomplete="off">
+          <div class="units-toggle" id="units-toggle">
+            <label><input type="radio" name="units" value="imperial" /> lb / ft·in</label>
+            <label><input type="radio" name="units" value="metric" /> kg / cm</label>
+          </div>
+          <div class="body-row" id="imperial-fields">
+            <label>Weight (lb) <input name="weight_lb" type="number" step="0.1" min="0" /></label>
+            <label>Height (ft) <input name="height_ft" type="number" step="1" min="0" max="9" /></label>
+            <label>Height (in) <input name="height_in" type="number" step="0.5" min="0" max="11.5" /></label>
+          </div>
+          <div class="body-row hidden" id="metric-fields">
+            <label>Weight (kg) <input name="weight_kg" type="number" step="0.1" min="0" /></label>
+            <label>Height (cm) <input name="height_cm" type="number" step="0.5" min="0" /></label>
+            <label>&nbsp;<div></div></label>
+          </div>
+          <div class="body-row">
+            <label>Age <input name="age" type="number" min="0" max="120" /></label>
+            <label>Sex
+              <select name="sex">
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+              </select>
+            </label>
+            <label title="Multiplier applied to BMR to estimate TDEE. Pick the level that matches your typical week.">Activity
+              <select name="activity">
+                <option value="1.2" title="Desk job, little/no exercise">Sedentary</option>
+                <option value="1.375" title="Light activity 1–3 days/week">Light (1–3×/wk)</option>
+                <option value="1.55" selected title="Moderate activity 3–5 days/week">Moderate (3–5×/wk)</option>
+                <option value="1.725" title="Hard exercise 6–7 days/week">Active (6–7×/wk)</option>
+                <option value="1.9" title="Hard daily exercise + physical job">Very active</option>
+              </select>
+            </label>
+          </div>
+        </form>
+        <div class="body-results" id="body-results">
+          <div class="empty">Fill in weight, height, age, and sex.</div>
+        </div>
+        <div class="target-actions hidden" id="target-actions">
+          <button type="button" class="ghost-btn" data-target="tdee" title="Set daily calories equal to your TDEE (maintenance).">Use TDEE as calorie target</button>
+          <button type="button" class="ghost-btn" data-target="deficit" title="TDEE minus 500 — roughly 1 lb (0.45 kg) per week of fat loss.">TDEE − 500 (loss)</button>
+          <button type="button" class="ghost-btn" data-target="surplus" title="TDEE plus 300 — modest surplus for lean gain.">TDEE + 300 (gain)</button>
+        </div>
+      </div>
+
+      <div class="settings-note">All data is stored locally on this machine. Nutrition lookups use Open Food Facts. Mifflin–St Jeor formula for BMR.</div>
+
+      <div class="danger-zone">
+        <h3>Reset</h3>
+        <p>Erase all diary entries, custom foods, cached lookups, and saved targets. Useful before sharing the app with someone else.</p>
+        <button id="btn-wipe" class="danger-btn" type="button">Wipe all data</button>
+      </div>
+    </section>
+  </main>
+
+  <aside class="sidebar-right">
+    <div class="net-section hidden" id="net-section">
+      <div class="side-label">Net calories</div>
+      <div class="net-val" id="net-val"></div>
+      <div class="net-sub" id="net-sub"></div>
+    </div>
+    <div class="side-head">
+      <h3>Macros</h3>
+      <div class="side-date" id="side-date"></div>
+    </div>
+    <div class="macros-pie hidden" id="macros-pie"></div>
+    <div class="macros-empty" id="macros-empty">
+      <img class="macros-empty-mascot" src="assets/mascot.png" alt="El Jefe" />
+      <div class="macros-empty-bubble">
+        <div class="bubble-line">¡Hola!</div>
+        <div class="bubble-sub">What are we cooking today?</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- SCANNER MODAL -->
+  <div class="modal hidden" id="scanner-modal">
+    <div class="modal-card scanner-card">
+      <header><h3>Scan barcode</h3><button class="close-btn" data-close>✕</button></header>
+      <video id="scanner-video" playsinline muted></video>
+      <div class="scanner-status" id="scanner-status">Point camera at a UPC/EAN barcode…</div>
+      <div class="scanner-actions">
+        <select id="scanner-camera"></select>
+        <button id="scanner-upload" class="ghost-btn" type="button" title="Decode a barcode from an image file.">📁 Image</button>
+        <button id="scanner-desktop" class="ghost-btn" type="button" title="Drag a viewfinder over anything on your desktop and capture it.">🖥 Desktop</button>
+        <button id="scanner-manual" class="ghost-btn" type="button">Type</button>
+        <input type="file" id="scanner-file" accept="image/*" style="display:none" />
+      </div>
+      <form class="scanner-manual hidden" id="scanner-manual-form">
+        <input id="scanner-manual-input" type="text" inputmode="numeric" pattern="\d*" placeholder="Enter barcode (UPC/EAN)…" />
+        <button type="submit" class="primary-btn">Look up</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ADD FOOD MODAL -->
+  <div class="modal hidden" id="add-modal">
+    <div class="modal-card">
+      <header>
+        <h3 id="add-title">Add food</h3>
+        <button class="close-btn" data-close>✕</button>
+      </header>
+      <div class="add-body" id="add-body"></div>
+    </div>
+  </div>
+
+  <!-- CUSTOM FOOD MODAL -->
+  <div class="modal hidden" id="custom-modal">
+    <div class="modal-card">
+      <header><h3 id="custom-title">Custom food</h3><button class="close-btn" data-close>✕</button></header>
+      <form class="custom-form" id="custom-form">
+        <input type="hidden" name="id" />
+        <input type="hidden" name="image" id="custom-img-data" />
+        <div class="img-picker">
+          <div class="img-preview" id="custom-img-preview"><span class="img-placeholder">No image</span></div>
+          <div class="img-actions">
+            <button type="button" class="ghost-btn small" id="custom-img-upload" title="Pick an image file.">📁 Choose</button>
+            <button type="button" class="ghost-btn small" id="custom-img-paste" title="Paste an image from clipboard (Ctrl+V also works when this modal is open).">📋 Paste</button>
+            <button type="button" class="ghost-btn small hidden" id="custom-img-remove">✕ Remove</button>
+            <span class="img-hint">or drop an image here</span>
+          </div>
+          <input type="file" id="custom-img-file" accept="image/*" style="display:none" />
+        </div>
+        <label>Name <input name="name" required /></label>
+        <label>Brand <input name="brand" /></label>
+        <div class="row-3">
+          <label>Serving size <input name="serving_size" type="number" step="0.01" min="0" required /></label>
+          <label>Unit <input name="serving_unit" placeholder="g, ml, piece" required /></label>
+          <label>Barcode <input name="barcode" /></label>
+        </div>
+        <div class="row-4">
+          <label>Calories <input name="calories" type="number" step="0.1" min="0" required /></label>
+          <label>Protein g <input name="protein" type="number" step="0.1" min="0" /></label>
+          <label>Carbs g <input name="carbs" type="number" step="0.1" min="0" /></label>
+          <label>Fat g <input name="fat" type="number" step="0.1" min="0" /></label>
+        </div>
+        <div class="form-note">Values are per one serving.</div>
+        <div class="form-actions">
+          <button type="button" class="ghost-btn" data-close>Cancel</button>
+          <button type="submit" class="primary-btn">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MEAL COMPOSER MODAL -->
+  <div class="modal hidden" id="meal-modal">
+    <div class="modal-card">
+      <header><h3 id="meal-title">New meal</h3><button class="close-btn" data-close>✕</button></header>
+      <form class="custom-form" id="meal-form">
+        <input type="hidden" name="id" />
+        <input type="hidden" name="image" id="meal-img-data" />
+        <div class="img-picker">
+          <div class="img-preview" id="meal-img-preview"><span class="img-placeholder">No image</span></div>
+          <div class="img-actions">
+            <button type="button" class="ghost-btn small" id="meal-img-upload" title="Pick an image file.">📁 Choose</button>
+            <button type="button" class="ghost-btn small" id="meal-img-paste" title="Paste an image from clipboard.">📋 Paste</button>
+            <button type="button" class="ghost-btn small hidden" id="meal-img-remove">✕ Remove</button>
+            <span class="img-hint">or drop an image here</span>
+          </div>
+          <input type="file" id="meal-img-file" accept="image/*" style="display:none" />
+        </div>
+        <label>Name <input name="name" required placeholder="e.g. Turkey sandwich" /></label>
+        <div class="meal-section-head">Ingredients</div>
+        <div class="meal-ingredients" id="meal-ingredients"></div>
+        <div class="meal-add-row">
+          <select id="meal-add-food"><option value="">Select a food…</option></select>
+          <input id="meal-add-servings" type="number" step="0.01" min="0" placeholder="Servings" />
+          <button type="button" id="meal-add-btn" class="ghost-btn">+ Add</button>
+        </div>
+        <div class="meal-totals" id="meal-totals"></div>
+        <div class="form-actions">
+          <button type="button" class="ghost-btn" data-close>Cancel</button>
+          <button type="submit" class="primary-btn">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- LABEL SCAN MODAL -->
+  <div class="modal hidden" id="label-modal">
+    <div class="modal-card scanner-card">
+      <header><h3>Scan nutrition label</h3><button class="close-btn" data-close>✕</button></header>
+      <div class="label-stage">
+        <video id="label-video" playsinline muted></video>
+        <img id="label-image" class="hidden" alt="captured" />
+      </div>
+      <div class="scanner-status" id="label-status">Frame the Nutrition Facts panel, then click Capture.</div>
+      <div class="scanner-actions">
+        <select id="label-camera"></select>
+        <button id="label-capture" class="primary-btn" type="button">Capture</button>
+        <button id="label-upload" class="ghost-btn" type="button">📁 Image</button>
+        <button id="label-desktop" class="ghost-btn" type="button" title="Drag a viewfinder over anything on your desktop and capture it.">🖥 Desktop</button>
+        <button id="label-retry" class="ghost-btn hidden" type="button">Retry</button>
+      </div>
+      <input type="file" id="label-file" accept="image/*" style="display:none" />
+      <div class="label-progress hidden" id="label-progress">
+        <div class="label-progress-bar"><span id="label-progress-fill"></span></div>
+        <div class="label-progress-text" id="label-progress-text">Loading OCR engine…</div>
+      </div>
+      <div class="label-results hidden" id="label-results"></div>
+    </div>
+  </div>
+
+  <!-- EXERCISE MODAL -->
+  <div class="modal hidden" id="exercise-modal">
+    <div class="modal-card">
+      <header><h3>Add exercise</h3><button class="close-btn" data-close>✕</button></header>
+      <form class="exercise-form" id="exercise-form">
+        <label>Activity <input name="name" required placeholder="e.g. Running, Weights, Walk" /></label>
+        <div class="row-2">
+          <label>Duration (min) <input name="duration_min" type="number" step="1" min="0" /></label>
+          <label>Calories burned <input name="calories" type="number" step="1" min="0" required /></label>
+        </div>
+        <label>Date <input name="date" type="date" required /></label>
+        <div class="form-actions">
+          <button type="button" class="ghost-btn" data-close>Cancel</button>
+          <button type="submit" class="primary-btn">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- WEIGH-IN MODAL -->
+  <div class="modal hidden" id="weighin-modal">
+    <div class="modal-card">
+      <header><h3>Log weight</h3><button class="close-btn" data-close>✕</button></header>
+      <form class="weighin-form" id="weighin-form">
+        <div class="row-2">
+          <label>Date <input name="date" type="date" required /></label>
+          <label>Weight <div class="weight-combo">
+            <input name="weight" type="number" step="0.1" min="0" required />
+            <span class="unit" id="weighin-unit">lb</span>
+          </div></label>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="ghost-btn" data-close>Cancel</button>
+          <button type="submit" class="primary-btn">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="vendor/zxing-browser.min.js"></script>
+  <script src="vendor/tesseract/tesseract.min.js"></script>
+  <script src="vendor/pica/pica.min.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/crop.js"></script>
+  <script src="js/scanner.js"></script>
+  <script src="js/label-scanner.js"></script>
+  <script src="js/quips.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

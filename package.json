@@ -1,0 +1,60 @@
+{
+  "name": "crumbtracker",
+  "version": "0.6.0",
+  "description": "Local calorie and nutrition tracker",
+  "main": "main.js",
+  "author": "CrumbTracker",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^26.8.1"
+  },
+  "dependencies": {
+    "@zxing/browser": "^0.1.5",
+    "pica": "^9.0.1",
+    "tesseract.js": "^7.0.0"
+  },
+  "build": {
+    "appId": "com.crumbtracker.app",
+    "productName": "CrumbTracker",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "package.json",
+      "!**/*.map"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "CrumbTracker"
+    },
+    "portable": {
+      "artifactName": "CrumbTracker-${version}-portable.exe"
+    }
+  }
+}
