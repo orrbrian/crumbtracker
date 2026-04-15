@@ -28,9 +28,13 @@ function parseNutritionText(raw) {
     raw: raw
   };
 
-  // Calories — just the number after the word.
-  const calMatch = text.match(/calories[^0-9]{0,8}(\d{1,4})/i);
-  if (calMatch) result.calories = Number(calMatch[1]);
+  // Calories - just the number after the word. Allow OCR confusables
+  // (O->0, B->8, I/l->1) since bold digits on labels often misread.
+  const calMatch = text.match(/calories[^0-9OoBbIl]{0,8}([\dOoBbIl]{1,4})/i);
+  if (calMatch) {
+    const n = calMatch[1].replace(/[Oo]/g, '0').replace(/[Bb]/g, '8').replace(/[Il]/g, '1');
+    result.calories = Number(n) || 0;
+  }
 
   // Total fat — prefer "Total Fat", fall back to "Fat" at start of a number context.
   const fatMatch = text.match(/total\s*fat[^0-9]{0,6}([\d.]+)\s*g/i)
