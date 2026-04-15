@@ -1,6 +1,6 @@
 {
   "name": "crumbtracker",
-  "version": "0.6.1",
+  "version": "0.7.3",
   "description": "Local calorie and nutrition tracker",
   "main": "main.js",
   "author": "CrumbTracker",
@@ -11,11 +11,14 @@
   },
   "devDependencies": {
     "electron": "^31.0.0",
-    "electron-builder": "^26.8.1"
+    "electron-builder": "^26.8.1",
+    "sharp": "^0.34.5"
   },
   "dependencies": {
     "@zxing/browser": "^0.1.5",
     "pica": "^9.0.1",
+    "qrcode": "^1.5.4",
+    "selfsigned": "^5.5.0",
     "tesseract.js": "^7.0.0"
   },
   "build": {
@@ -24,6 +27,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "remote-scanner.js",
       "renderer/**/*",
       "package.json",
       "!**/*.map"
@@ -32,6 +36,7 @@
       "output": "dist"
     },
     "win": {
+      "icon": "renderer/assets/icon.png",
       "target": [
         {
           "target": "nsis",

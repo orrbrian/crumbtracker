@@ -21,7 +21,7 @@
       <img src="assets/mascot-small.png" alt="El Jefe" />
       <span class="mascot-name">El Jefe</span>
     </div>
-    <div class="nav-foot">Local · v0.6.1</div>
+    <div class="nav-foot">Local · v0.7.3</div>
   </nav>
 
   <main class="content">
@@ -76,8 +76,9 @@
         <div class="search-row">
           <input id="search-input" type="text" placeholder="Search Open Food Facts…" />
           <button id="search-btn" class="primary-btn">Search</button>
-          <button id="scan-btn" class="ghost-btn" title="Scan a UPC/EAN barcode with the camera.">📷 Barcode</button>
+          <button id="phone-scan-btn" class="ghost-btn" title="Experimental - scan a barcode with your phone's camera over your local network.">📱 Phone scan</button>
           <button id="scan-label-btn" class="ghost-btn" title="Scan a nutrition facts label with OCR (camera or image).">📷 Label</button>
+          <button id="scan-btn" class="ghost-btn" title="Scan a UPC/EAN barcode with the camera.">📷 Barcode</button>
         </div>
         <div class="results" id="search-results"></div>
       </div>
@@ -140,6 +141,7 @@
           <a href="#doc-diary">Diary</a>
           <a href="#doc-foods">Foods</a>
           <a href="#doc-meals">Meals</a>
+          <a href="#doc-phone-scan">Phone scan</a>
           <a href="#doc-progress">Progress</a>
           <a href="#doc-settings">Settings</a>
           <a href="#doc-formulas">Formulas</a>
@@ -163,7 +165,7 @@
               <li><b>Amount vs servings</b> — when adding a food, the <em>Amount</em> input (g/ml) and <em>Servings</em> input are linked. Edit either; macros recalculate live. Last amount is remembered per food for next time.</li>
               <li><b>Exercise</b> — logged separately from meals. Calories burned never subtract from your "Calories in" total; they show up as <em>Net calories</em> in the right sidebar.</li>
               <li><b>Notes</b> — freeform text per day. Auto-saves 400 ms after you stop typing.</li>
-              <li><b>Right sidebar</b> — shows the macro pie chart (protein/carbs/fat as % of calories) for the current diary date, plus the <em>Net calories</em> card when exercise is logged. On days with nothing logged, <em>El Jefe</em> greets you there instead.</li>
+              <li><b>Right sidebar</b> - shows a concentric-ring macro chart for the current diary date. The <b>outer ring</b> is today's actual macro split by calories; the <b>inner ring</b> is your goal split (from Settings). Matching splits align; drift shows as misaligned arc ends. Hover any slice for exact grams and percentage. The <em>Net calories</em> card appears when exercise is logged. On days with no food or targets, <em>El Jefe</em> greets you there instead.</li>
             </ul>
           </article>
 
@@ -188,10 +190,11 @@
                 </ul>
               </li>
               <li><b>Custom foods</b> — type nutrition values in directly. Attach a barcode so future scans resolve locally without hitting the API.</li>
-              <li><b>Food images</b> — custom foods have an image picker at the top of the form (📁 Choose, 📋 Paste, or drop a file; Ctrl+V also pastes). <em>Paste</em> works with Windows Snipping Tool captures and with <em>Copy Image</em> from a browser (both bitmap and image URL clipboard payloads are handled). Search-result foods show an ✎ on their thumbnail inside the add-to-diary modal — click or drop to replace. Images are downscaled to 400 px JPEG data URLs and stored in the food record, so they travel with the food and work offline.</li>
+              <li><b>Food images</b> - custom foods have an image picker at the top of the form (📁 Choose, 📋 Paste, or drop a file; Ctrl+V also pastes). The <em>Add to diary</em> dialog also lets you edit the food's image inline: click the thumbnail (or the ✎ pencil) for a file picker, click the 📋 button to paste from clipboard, drop a file onto the thumb, or Ctrl+V anywhere in the dialog. <em>Paste</em> works with Windows Snipping Tool captures and with <em>Copy Image</em> from a browser (both bitmap and image-URL clipboard payloads are handled). Images are downscaled to 400 px JPEG data URLs and stored on the food record, so they travel with the food and work offline.</li>
               <li><b>Nutrition missing?</b> When a food has 0 kcal, the add-modal auto-expands a "Nutrition label" section. Enter values once — they're saved back to the food for next time.</li>
               <li><b>(est.)</b> tag — serving size was inferred from the product's category, not a real label. Double-check before logging.</li>
-              <li><b>Recent</b> — foods you've logged recently, ready to re-add.</li>
+              <li><b>Recent</b> - foods you've logged recently, ready to re-add.</li>
+              <li><b>Save to My Foods</b> - a checkbox on the Add-food dialog. When you're adding a food from Search or Recent, tick it to also copy the food into your My Foods tab for easy re-adding later. Foods already in My Foods show <em>"Already in My Foods"</em> instead.</li>
             </ul>
           </article>
 
@@ -205,6 +208,46 @@
               <li><b>Upstream food changes</b> — if you fix an ingredient food's nutrition (e.g. correct the bread's calorie count), future meal additions will use the updated value automatically, because meals reference ingredients by ID.</li>
               <li><b>Missing ingredients</b> — if you delete a food that's still used by a meal, that meal shows a <em>⚠ N missing</em> note. It will still log, but totals will exclude the missing items until you edit the meal and remove or replace them.</li>
               <li><b>Servings vs. amount</b> — meal ingredients are counted in the ingredient food's own servings, not grams. If a food's serving size is 30g and you use half a serving in your meal, enter <code>0.5</code>.</li>
+            </ul>
+          </article>
+
+          <article id="doc-phone-scan">
+            <h3>Phone scan <span class="experimental-tag">experimental</span></h3>
+            <p>Let a phone on the same Wi-Fi act as a barcode scanner for CrumbTracker. Useful when the product isn't near your PC - flip the box downstairs, scan it with your phone, the add-to-diary dialog pops up on the desktop.</p>
+            <p><b>How it works:</b> clicking <em>📱 Phone scan</em> in the Foods view starts a small HTTPS server on your local network and shows a QR code. Your phone scans the QR to open a scanner page. Barcodes the phone reads are sent back to CrumbTracker over the LAN. Nothing leaves your network - there's no cloud, no account, no external server.</p>
+            <h4 style="margin:14px 0 6px">Phone side - step by step</h4>
+            <ol>
+              <li><b>Same Wi-Fi.</b> The phone and the PC must be on the same network. A phone on cellular data will not work.</li>
+              <li><b>Scan the QR code</b> with your phone's camera app (iOS Camera / Google Lens / any QR app). Tap the link it offers.</li>
+              <li><b>You will see a security warning.</b> Something like <em>"Your connection is not private"</em> or <em>"Not secure"</em>. This is expected - CrumbTracker uses a self-signed certificate for the LAN session. No certificate authority is involved because the server only exists on your home network.
+                <ul>
+                  <li><b>Chrome / Edge on Android:</b> tap <em>Advanced</em> then <em>Proceed to <span class="muted">(IP)</span> (unsafe)</em>.</li>
+                  <li><b>Firefox on Android:</b> tap <em>Advanced</em>, then <em>Accept the risk and continue</em>.</li>
+                  <li><b>Safari on iOS:</b> tap <em>Show Details</em>, then <em>visit this website</em>, then <em>Visit Website</em> and enter your passcode / Face ID if prompted.</li>
+                </ul>
+              </li>
+              <li><b>Allow camera access</b> when the phone's browser asks. CrumbTracker uses the camera locally - the video feed itself never leaves your phone; only the decoded barcode digits are sent.</li>
+              <li><b>Point at a UPC / EAN barcode.</b> Hold the phone roughly parallel to the label, 4-8 inches away, let the camera focus. Fill most of the reticle with the bars. Flat, front-lit, unwrinkled labels decode fastest.</li>
+              <li>When the phone says <em>✓ Sent</em>, the desktop opens the add-food dialog. Scan the next product immediately - no need to re-pair.</li>
+            </ol>
+            <h4 style="margin:14px 0 6px">Desktop side</h4>
+            <ul>
+              <li>The <em>📱 Phone scan</em> button shows a green pulsing dot while a session is active. Click it while active to re-open the QR (useful if your phone's tab closed) or to <em>Stop sharing</em>.</li>
+              <li>The session auto-stops after 10 minutes of no activity, or when you click <em>Stop sharing</em>.</li>
+              <li>If you see multiple URLs in the modal, your PC has several network interfaces. The first one is usually the right one; if the phone can't connect, try typing one of the other URLs into the phone's browser manually.</li>
+            </ul>
+            <h4 style="margin:14px 0 6px">Troubleshooting</h4>
+            <ul>
+              <li><b>"TLS error" / "Can't provide a secure connection"</b> - usually means the phone landed on the wrong IP, or the PC's firewall is blocking the port. Check that the URL in the modal matches your home Wi-Fi's subnet (usually starts with <code>192.168.</code>).</li>
+              <li><b>Scanning is slow or nothing happens</b> - the phone's autofocus needs a moment. Hold steady, closer to the barcode, with good lighting.</li>
+              <li><b>QR code doesn't open a browser</b> - some phone camera apps treat https:// URLs oddly. Type the URL shown under the QR into your phone's browser manually.</li>
+              <li><b>First scan after a long idle</b> - the session may have timed out. Click <em>📱 Phone scan</em> on the desktop again to start a fresh session.</li>
+            </ul>
+            <h4 style="margin:14px 0 6px">Privacy &amp; security</h4>
+            <ul>
+              <li>The server only runs while you have an active session. A random 128-bit token must match in the URL, so nothing on your LAN can guess the endpoint.</li>
+              <li>A fresh self-signed TLS certificate is generated per session. No cert is ever installed on your phone or PC.</li>
+              <li>Don't use Phone scan on public Wi-Fi. It's designed for your home network only.</li>
             </ul>
           </article>
 
@@ -222,11 +265,13 @@
 
           <article id="doc-settings">
             <h3>Settings</h3>
+            <p>The Settings view flows top-to-bottom in the order you'd typically fill it out: enter your body stats first to get TDEE, then set daily targets (using the TDEE buttons or a macro preset).</p>
             <ul>
-              <li><b>Daily targets</b> — calorie and macro goals (grams). Totals bar progress tracks against these.</li>
-              <li><b>Body &amp; activity</b> — drives BMR, TDEE, and BMI. Auto-saves as you type.</li>
-              <li><b>Units</b> — toggle lb/ft·in ↔ kg/cm at any time. Existing values convert automatically.</li>
-              <li><b>Reset</b> — wipes every object store (foods, entries, settings, notes, weigh-ins, exercise). Double-confirmed. Useful before sharing the app.</li>
+              <li><b>Body &amp; activity</b> - drives BMR, TDEE, and BMI. Auto-saves as you type. Once filled in, the <em>Use TDEE</em> / <em>TDEE - 500</em> / <em>TDEE + 300</em> buttons appear under it; clicking one writes that value into the Daily calories field below.</li>
+              <li><b>Units</b> - toggle lb/ft·in vs kg/cm at any time. Existing values convert automatically.</li>
+              <li><b>Daily targets</b> - calorie and macro goals (grams). Totals bar and macro rings on the diary track against these.</li>
+              <li><b>Macro preset</b> - a dropdown with conventional splits (Balanced, Weight loss, Bulking, Body recomp, Low carb, Keto, Endurance, High protein). Pick one to auto-fill Protein/Carbs/Fat grams from your current Daily calories. Editing any macro manually flips it back to <em>Custom</em>. Hover each option for what it's typically used for. These are industry-convention splits - not medical advice.</li>
+              <li><b>Reset</b> - wipes every object store (foods, entries, settings, notes, weigh-ins, exercise, meals). Double-confirmed. Useful before sharing the app or starting fresh.</li>
             </ul>
           </article>
 
@@ -248,6 +293,7 @@
             <h3>Data &amp; privacy</h3>
             <p>Everything is stored locally in IndexedDB inside this app's user-data directory. Object stores: <code>foods</code>, <code>entries</code>, <code>settings</code>, <code>notes</code>, <code>weights</code>, <code>exercise</code>, <code>meals</code>.</p>
             <p>The app only talks to the network for Open Food Facts (<code>world.openfoodfacts.org</code>, <code>search.openfoodfacts.org</code>) when you search or scan a barcode. Nothing you log leaves your machine.</p>
+            <p><b>Phone scan</b> (experimental) runs a temporary HTTPS server on your LAN only while the session is active. It's bound to your PC's network interfaces, authenticated by a random token, and auto-stops on idle. No external server or account is involved. See the <a href="#doc-phone-scan">Phone scan</a> section for details.</p>
           </article>
 
           <article id="doc-shortcuts">
@@ -255,11 +301,12 @@
             <ul>
               <li><b>Enter</b> in the search box runs the search. If the query is a valid-length all-digit string (8/12/13/14), an exact barcode lookup also runs in parallel.</li>
               <li>In the add-food modal, typing a new <b>Amount</b> recomputes Servings automatically. Works the other way too.</li>
-              <li>Scanning the same barcode twice hits the local cache on the second scan — instant, no network.</li>
+              <li>Scanning the same barcode twice hits the local cache on the second scan - instant, no network.</li>
               <li>Desktop snip viewfinder: <b>Enter</b> captures, <b>Esc</b> cancels.</li>
               <li>Hover most numbers and buttons for a tooltip explaining what they mean.</li>
-              <li>Open DevTools with <b>Ctrl+Shift+I</b> if something looks off.</li>
+              <li>Open DevTools with <b>Ctrl+Shift+I</b> (or <b>F12</b>) if something looks off.</li>
               <li><b>Ctrl+R</b> reloads the renderer. Changes to Electron's main process (e.g. IPC handlers) require a full app restart instead.</li>
+              <li><b>Single-instance:</b> launching CrumbTracker a second time focuses the existing window instead of starting a duplicate. IndexedDB only allows one writer per database, so duplicate instances would fail to load anyway.</li>
             </ul>
           </article>
         </div>
@@ -272,7 +319,7 @@
         <img class="about-logo" src="assets/alcorr.png" alt="Alcorr Software, Inc." />
         <h1 class="about-title">CrumbTracker</h1>
         <div class="about-sub">Local calorie &amp; nutrition tracker</div>
-        <div class="about-version">Version 0.6.1</div>
+        <div class="about-version">Version 0.7.3</div>
         <div class="about-meta">
           <div>Built by <b>Alcorr Software, Inc.</b></div>
           <div>All data stays on this machine.</div>
@@ -284,17 +331,6 @@
     <!-- SETTINGS -->
     <section class="view hidden" id="view-settings">
       <header class="view-head"><h2>Settings</h2></header>
-
-      <div class="settings-section">
-        <h3>Daily targets</h3>
-        <form class="settings-form" id="settings-form">
-          <label>Daily calories <input type="number" name="calories" min="0" /></label>
-          <label>Protein (g) <input type="number" name="protein" min="0" /></label>
-          <label>Carbs (g) <input type="number" name="carbs" min="0" /></label>
-          <label>Fat (g) <input type="number" name="fat" min="0" /></label>
-          <button class="primary-btn" type="submit">Save targets</button>
-        </form>
-      </div>
 
       <div class="settings-section">
         <h3>Body &amp; activity</h3>
@@ -340,6 +376,33 @@
           <button type="button" class="ghost-btn" data-target="deficit" title="TDEE minus 500 — roughly 1 lb (0.45 kg) per week of fat loss.">TDEE − 500 (loss)</button>
           <button type="button" class="ghost-btn" data-target="surplus" title="TDEE plus 300 — modest surplus for lean gain.">TDEE + 300 (gain)</button>
         </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>Daily targets</h3>
+        <form class="settings-form" id="settings-form">
+          <label>Daily calories <input type="number" name="calories" min="0" /></label>
+          <label title="Picks a conventional macro split for common goals. Editing any macro field below manually flips this back to Custom.">Macro preset
+            <select name="macro_preset" id="macro-preset">
+              <option value="custom" title="Enter your own protein, carbs, and fat grams.">Custom</option>
+              <option value="balanced" title="Classic maintenance split - works for most people not actively cutting or bulking.">Balanced (25 / 50 / 25)</option>
+              <option value="weight_loss" title="Higher protein to preserve muscle in a calorie deficit. Moderate carbs and fat.">Weight loss (40 / 30 / 30)</option>
+              <option value="bulking" title="More carbs to fuel training during a caloric surplus.">Bulking (30 / 45 / 25)</option>
+              <option value="recomp" title="Body recomposition - between cut and bulk; leaner gains or slow loss.">Body recomp (35 / 40 / 25)</option>
+              <option value="low_carb" title="Reduced carbs, elevated fat. Not ketogenic.">Low carb (30 / 20 / 50)</option>
+              <option value="keto" title="Ketogenic split - very low carb, high fat. Requires carb discipline (~20-30 g/day typically).">Keto (20 / 5 / 75)</option>
+              <option value="endurance" title="High carbs to fuel long-duration aerobic training.">Endurance (20 / 55 / 25)</option>
+              <option value="high_protein" title="Protein-forward split used for muscle retention and satiety.">High protein (40 / 35 / 25)</option>
+            </select>
+          </label>
+          <label>Protein (g) <input type="number" name="protein" min="0" /></label>
+          <label>Carbs (g) <input type="number" name="carbs" min="0" /></label>
+          <label>Fat (g) <input type="number" name="fat" min="0" /></label>
+          <div class="form-note macro-note">
+            Presets are conventional splits, not medical advice - hover each option for its typical use case.
+          </div>
+          <button class="primary-btn" type="submit">Save targets</button>
+        </form>
       </div>
 
       <div class="settings-note">All data is stored locally on this machine. Nutrition lookups use Open Food Facts. Mifflin–St Jeor formula for BMR.</div>
@@ -439,6 +502,37 @@
           <button type="submit" class="primary-btn">Save</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- PHONE SCAN MODAL (experimental) -->
+  <div class="modal hidden" id="phone-scan-modal">
+    <div class="modal-card phone-scan-card">
+      <header>
+        <h3>Phone scan <span class="experimental-tag" title="Experimental feature. May have rough edges.">experimental</span></h3>
+        <button class="close-btn" data-close>✕</button>
+      </header>
+      <div class="phone-scan-body">
+        <div class="phone-scan-step">
+          <ol>
+            <li>Make sure your phone is on the same Wi-Fi as this PC.</li>
+            <li>Scan the QR code below with your phone camera.</li>
+            <li>When your phone's browser warns about the security certificate, tap <b>Advanced</b> then <b>Proceed</b> - this is a local-only connection using a self-signed certificate (nothing leaves your network).</li>
+            <li>Allow camera access on the phone, then point it at a barcode.</li>
+          </ol>
+        </div>
+        <div class="phone-scan-qr" id="phone-scan-qr">
+          <div class="phone-scan-status" id="phone-scan-status">Starting local server...</div>
+        </div>
+        <div class="phone-scan-url">
+          <div class="muted">Or type this URL into your phone's browser:</div>
+          <code id="phone-scan-url-text"></code>
+        </div>
+      </div>
+      <div class="form-actions" id="phone-scan-session-actions">
+        <button type="button" class="ghost-btn" id="phone-scan-stop" title="Stop the local server. Your phone won't be able to scan until you re-enable Phone scan.">Stop sharing</button>
+        <button type="button" class="ghost-btn" data-close>Close (keep sharing)</button>
+      </div>
     </div>
   </div>
 

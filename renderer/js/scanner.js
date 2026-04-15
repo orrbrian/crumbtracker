@@ -102,23 +102,37 @@ class BarcodeScanner {
   async _decodeBlob(blob) {
     if (!window.ZXingBrowser) { this.status.textContent = 'Scanner library failed to load.'; return; }
     if (!this.reader) this.reader = new window.ZXingBrowser.BrowserMultiFormatReader();
-    const url = URL.createObjectURL(blob);
     this.status.textContent = 'Decoding image…';
+
+    // Try preprocessed (upscale + grayscale + contrast stretch) first, fall
+    // back to the raw crop if ZXing can't read it either way.
+    const candidates = [];
     try {
-      const result = await this.reader.decodeFromImageUrl(url);
-      const code = result && result.getText ? result.getText() : null;
-      if (code) {
-        this.close();
-        if (this._onDetected) this._onDetected(code);
-      } else {
-        this.status.textContent = 'No barcode found. Try cropping tighter.';
-      }
+      const prepared = await preprocessForBarcode(blob);
+      if (prepared) candidates.push(prepared);
     } catch (e) {
-      console.warn('Image decode failed:', e);
-      this.status.textContent = 'No barcode found. Try cropping tighter or a clearer shot.';
-    } finally {
-      URL.revokeObjectURL(url);
+      console.warn('Barcode preprocess failed:', e);
     }
+    candidates.push(blob);
+
+    for (const b of candidates) {
+      const url = URL.createObjectURL(b);
+      try {
+        const result = await this.reader.decodeFromImageUrl(url);
+        const code = result && result.getText ? result.getText() : null;
+        if (code) {
+          URL.revokeObjectURL(url);
+          this.close();
+          if (this._onDetected) this._onDetected(code);
+          return;
+        }
+      } catch (e) {
+        // Continue to next candidate; keep the last failure for reporting.
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+    this.status.textContent = 'No barcode found. Try cropping tighter or a clearer shot.';
   }
 
   async open(onDetected) {
@@ -206,3 +220,75 @@ class BarcodeScanner {
 }
 
 CT.scanner = new BarcodeScanner();
+
+// Scale, grayscale, and stretch contrast on a barcode crop before handing it
+// to ZXing. Tuned lighter than the OCR pipeline: ZXing does its own
+// binarization, so we deliberately skip thresholding to avoid introducing
+// jaggies that break bar-width detection.
+const _scannerPica = (typeof pica === 'function') ? pica({ features: ['js', 'wasm'] }) : null;
+
+async function preprocessForBarcode(blob, targetMin = 1200) {
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    img.src = url;
+    await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; });
+
+    const iw = img.naturalWidth, ih = img.naturalHeight;
+    const shortSide = Math.min(iw, ih);
+    const scale = shortSide < targetMin ? (targetMin / shortSide) : 1;
+    const w = Math.round(iw * scale);
+    const h = Math.round(ih * scale);
+
+    const src = document.createElement('canvas');
+    src.width = iw;
+    src.height = ih;
+    src.getContext('2d').drawImage(img, 0, 0);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    if (_scannerPica && scale !== 1) {
+      await _scannerPica.resize(src, canvas, { filter: 'lanczos3', unsharpAmount: 60, unsharpRadius: 0.5, unsharpThreshold: 2 });
+    } else {
+      const c = canvas.getContext('2d');
+      c.imageSmoothingEnabled = true;
+      c.imageSmoothingQuality = 'high';
+      c.drawImage(img, 0, 0, w, h);
+    }
+
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const pixels = ctx.getImageData(0, 0, w, h);
+    const d = pixels.data;
+
+    // Grayscale + luminance histogram.
+    const hist = new Uint32Array(256);
+    for (let i = 0; i < d.length; i += 4) {
+      const y = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) | 0;
+      d[i] = d[i + 1] = d[i + 2] = y;
+      hist[y]++;
+    }
+
+    // 2/98 percentile stretch to kill screen glare and shadows without
+    // binarizing: ZXing wants grayscale with good contrast, not 1-bit.
+    const total = w * h;
+    const loCut = total * 0.02, hiCut = total * 0.98;
+    let acc = 0, lo = 0, hi = 255;
+    for (let i = 0; i < 256; i++) { acc += hist[i]; if (acc >= loCut) { lo = i; break; } }
+    acc = 0;
+    for (let i = 0; i < 256; i++) { acc += hist[i]; if (acc >= hiCut) { hi = i; break; } }
+    if (hi - lo >= 16) {
+      const range = hi - lo;
+      for (let i = 0; i < d.length; i += 4) {
+        let v = (d[i] - lo) * 255 / range;
+        if (v < 0) v = 0; else if (v > 255) v = 255;
+        d[i] = d[i + 1] = d[i + 2] = v;
+      }
+    }
+    ctx.putImageData(pixels, 0, 0);
+
+    return await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}

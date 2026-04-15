@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <title>CrumbTracker — Phone scan</title>
+  <style>
+    :root {
+      --bg: #0f1216; --bg-2: #151a21; --bg-3: #1c222b; --line: #262d38;
+      --text: #e6ebf2; --muted: #8a95a5; --accent: #7dd3a0; --danger: #f06a6a;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+      min-height: 100vh; min-height: 100dvh; overflow: hidden;
+    }
+    .app { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
+    header { padding: 14px 16px; background: var(--bg-2); border-bottom: 1px solid var(--line); }
+    header h1 { margin: 0; font-size: 14px; letter-spacing: 0.4px; }
+    header .sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
+    .stage { flex: 1; position: relative; overflow: hidden; background: #000; }
+    video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .reticle {
+      position: absolute; left: 10%; right: 10%; top: 40%; height: 20%;
+      border: 2px solid var(--accent); border-radius: 6px;
+      box-shadow: 0 0 0 2000px rgba(0,0,0,0.35);
+      pointer-events: none;
+    }
+    .status {
+      position: absolute; left: 0; right: 0; bottom: 12px; text-align: center;
+      color: var(--text); font-size: 13px;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+    }
+    .toast {
+      position: absolute; left: 50%; top: 12px; transform: translateX(-50%);
+      background: var(--bg-2); border: 1px solid var(--accent); color: var(--accent);
+      padding: 8px 14px; border-radius: 8px; font-size: 13px;
+      opacity: 0; transition: opacity 0.2s;
+    }
+    .toast.show { opacity: 1; }
+    .controls { padding: 12px 14px; background: var(--bg-2); border-top: 1px solid var(--line); display: flex; gap: 10px; align-items: center; }
+    .controls select { flex: 1; background: var(--bg-3); color: var(--text); border: 1px solid var(--line); padding: 9px; border-radius: 8px; }
+    .hint { color: var(--muted); font-size: 11px; padding: 8px 16px; background: var(--bg); border-top: 1px solid var(--line); }
+    .error {
+      background: var(--bg-2); border: 1px solid var(--danger); color: var(--danger);
+      padding: 14px; margin: 12px; border-radius: 8px; font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>CrumbTracker — Phone scan</h1>
+      <div class="sub">Point your camera at a UPC / EAN barcode.</div>
+    </header>
+    <div class="stage" id="stage">
+      <video id="video" playsinline muted autoplay></video>
+      <div class="reticle"></div>
+      <div class="status" id="status">Starting camera…</div>
+      <div class="toast" id="toast">✓ Sent</div>
+    </div>
+    <div class="controls">
+      <select id="camera"></select>
+    </div>
+    <div class="hint">Scans are sent to your desktop over your local network only. Nothing leaves your network.</div>
+  </div>
+
+  <script src="/__TOKEN__/zxing.min.js"></script>
+  <script>
+    const TOKEN = '__TOKEN__';
+    const video = document.getElementById('video');
+    const statusEl = document.getElementById('status');
+    const toastEl = document.getElementById('toast');
+    const cameraSel = document.getElementById('camera');
+    const stage = document.getElementById('stage');
+    let reader, controls;
+    let sending = false;
+    let lastCode = '';
+    let lastSentAt = 0;
+
+    function showError(msg) {
+      stage.innerHTML = '<div class="error">' + msg + '</div>';
+    }
+    function toast(msg) {
+      toastEl.textContent = msg;
+      toastEl.classList.add('show');
+      setTimeout(() => toastEl.classList.remove('show'), 1200);
+    }
+
+    async function sendCode(code) {
+      const now = Date.now();
+      if (code === lastCode && (now - lastSentAt) < 2500) return; // debounce identical codes
+      if (sending) return;
+      sending = true;
+      statusEl.textContent = 'Sending ' + code + '…';
+      try {
+        const res = await fetch('/' + TOKEN + '/code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code })
+        });
+        if (res.ok) {
+          lastCode = code; lastSentAt = now;
+          toast('✓ Sent ' + code);
+          statusEl.textContent = 'Sent. Scan another, or close this tab when done.';
+        } else {
+          statusEl.textContent = 'Send failed (' + res.status + '). Try again.';
+        }
+      } catch (e) {
+        statusEl.textContent = 'Network error. Still on your Wi-Fi?';
+      } finally {
+        setTimeout(() => { sending = false; }, 700);
+      }
+    }
+
+    async function populateCameras() {
+      try {
+        // Getting a default stream first surfaces labels on iOS.
+        const temp = await navigator.mediaDevices.getUserMedia({ video: true });
+        temp.getTracks().forEach(t => t.stop());
+      } catch (e) {
+        showError('Camera permission denied. Allow camera access for this page and reload.');
+        throw e;
+      }
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cams = devices.filter(d => d.kind === 'videoinput');
+      cameraSel.innerHTML = '';
+      cams.forEach((d, i) => {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || ('Camera ' + (i + 1));
+        cameraSel.appendChild(opt);
+      });
+      // Prefer a back-facing camera if labels hint at it.
+      const back = cams.find(c => /back|rear|environment/i.test(c.label));
+      if (back) cameraSel.value = back.deviceId;
+    }
+
+    async function start() {
+      try {
+        await populateCameras();
+      } catch { return; }
+      const Z = window.ZXingBrowser;
+      if (!Z) { showError('Scanner library failed to load.'); return; }
+      reader = new Z.BrowserMultiFormatReader();
+      await restart();
+      cameraSel.addEventListener('change', restart);
+    }
+
+    async function restart() {
+      if (controls) { try { controls.stop(); } catch {} controls = null; }
+      statusEl.textContent = 'Starting camera…';
+      try {
+        controls = await reader.decodeFromVideoDevice(
+          cameraSel.value || undefined,
+          video,
+          (result, err) => {
+            if (result && result.getText) {
+              const code = result.getText();
+              if (code) sendCode(code);
+            }
+          }
+        );
+        statusEl.textContent = 'Point at a barcode.';
+      } catch (e) {
+        showError('Could not start camera: ' + (e && e.message || e));
+      }
+    }
+
+    start();
+  </script>
+</body>
+</html>

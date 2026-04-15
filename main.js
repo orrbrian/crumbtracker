@@ -1,7 +1,24 @@
 const { app, BrowserWindow, session, ipcMain, desktopCapturer, screen, nativeTheme, clipboard } = require('electron');
 const path = require('path');
+const remoteScanner = require('./remote-scanner');
+const qrcode = require('qrcode');
 
 nativeTheme.themeSource = 'dark';
+
+// Refuse to start a second instance — IndexedDB / LevelDB only allows one
+// writer at a time, so a duplicate launch would crash the renderer with
+// "Internal error" on every DB call. Instead, focus the existing window.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
 
 let mainWindow = null;
 let viewfinderWindow = null;
@@ -15,6 +32,7 @@ function createWindow() {
     minHeight: 640,
     backgroundColor: '#111418',
     title: 'CrumbTracker',
+    icon: path.join(__dirname, 'renderer', 'assets', 'icon.png'),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -152,6 +170,31 @@ ipcMain.handle('clipboard:readImage', async () => {
   } catch (e) {
     return { dataUrl: null, debug: { via: source, formats, url, error: String(e && e.message || e) } };
   }
+});
+
+ipcMain.handle('remote-scan:start', async () => {
+  try {
+    const info = await remoteScanner.start({
+      onCode: (code) => {
+        if (mainWindow) { try { mainWindow.webContents.send('remote-scan:code', code); } catch {} }
+      },
+      onError: (err) => {
+        if (mainWindow) { try { mainWindow.webContents.send('remote-scan:error', String(err && err.message || err)); } catch {} }
+      }
+    });
+    const qrDataUrl = await qrcode.toDataURL(info.url, {
+      margin: 1, scale: 6, errorCorrectionLevel: 'M',
+      color: { dark: '#0f1216', light: '#ffffff' }
+    });
+    return { ok: true, url: info.url, urls: info.urls, qr: qrDataUrl };
+  } catch (e) {
+    return { ok: false, error: String(e && e.message || e) };
+  }
+});
+
+ipcMain.handle('remote-scan:stop', () => {
+  remoteScanner.stop('renderer cancel');
+  return { ok: true };
 });
 
 ipcMain.handle('viewfinder:cancel', () => {

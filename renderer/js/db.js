@@ -5,42 +5,40 @@
 //   settings — key/value (targets, prefs)
 
 const DB_NAME = 'crumbtracker';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 var CT = window.CT || (window.CT = {});
+
+// Schema spec: each store with the indexes it must have. onupgradeneeded
+// creates missing stores AND reconciles missing indexes on existing stores.
+const SCHEMA = {
+  foods:    { keyPath: 'id',   indexes: { barcode: 'barcode', source: 'source', updated_at: 'updated_at' } },
+  entries:  { keyPath: 'id',   indexes: { date: 'date', date_meal: ['date', 'meal'] } },
+  settings: { keyPath: 'key',  indexes: {} },
+  notes:    { keyPath: 'date', indexes: {} },
+  weights:  { keyPath: 'date', indexes: {} },
+  exercise: { keyPath: 'id',   indexes: { date: 'date' } },
+  meals:    { keyPath: 'id',   indexes: { updated_at: 'updated_at' } }
+};
 
 function openDb() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
-      if (!db.objectStoreNames.contains('foods')) {
-        const foods = db.createObjectStore('foods', { keyPath: 'id' });
-        foods.createIndex('barcode', 'barcode', { unique: false });
-        foods.createIndex('source', 'source', { unique: false });
-        foods.createIndex('updated_at', 'updated_at', { unique: false });
-      }
-      if (!db.objectStoreNames.contains('entries')) {
-        const entries = db.createObjectStore('entries', { keyPath: 'id' });
-        entries.createIndex('date', 'date', { unique: false });
-        entries.createIndex('date_meal', ['date', 'meal'], { unique: false });
-      }
-      if (!db.objectStoreNames.contains('settings')) {
-        db.createObjectStore('settings', { keyPath: 'key' });
-      }
-      if (!db.objectStoreNames.contains('notes')) {
-        db.createObjectStore('notes', { keyPath: 'date' });
-      }
-      if (!db.objectStoreNames.contains('weights')) {
-        db.createObjectStore('weights', { keyPath: 'date' });
-      }
-      if (!db.objectStoreNames.contains('exercise')) {
-        const ex = db.createObjectStore('exercise', { keyPath: 'id' });
-        ex.createIndex('date', 'date', { unique: false });
-      }
-      if (!db.objectStoreNames.contains('meals')) {
-        const meals = db.createObjectStore('meals', { keyPath: 'id' });
-        meals.createIndex('updated_at', 'updated_at', { unique: false });
+      const tx = req.transaction; // versionchange transaction, gives access to existing stores
+      for (const [name, spec] of Object.entries(SCHEMA)) {
+        let store;
+        if (!db.objectStoreNames.contains(name)) {
+          store = db.createObjectStore(name, { keyPath: spec.keyPath });
+        } else {
+          store = tx.objectStore(name);
+        }
+        for (const [idxName, keyPath] of Object.entries(spec.indexes)) {
+          if (!store.indexNames.contains(idxName)) {
+            store.createIndex(idxName, keyPath, { unique: false });
+          }
+        }
       }
     };
     req.onsuccess = () => resolve(req.result);

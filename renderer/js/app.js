@@ -7,7 +7,7 @@ const MEALS = [
   { key: 'snacks',    label: 'Snacks' }
 ];
 
-const DEFAULT_TARGETS = { calories: 2000, protein: 150, carbs: 220, fat: 65 };
+const DEFAULT_TARGETS = { calories: 2000, protein: 150, carbs: 220, fat: 65, preset: 'custom' };
 
 const state = {
   date: isoDate(new Date()),
@@ -54,26 +54,31 @@ function formatMacros(e) {
 function r(n) { return Math.round((Number(n) || 0) * 10) / 10; }
 
 async function renderDiary() {
-  $('#date-picker').value = state.date;
-  const entries = await CT.db.listEntriesForDate(state.date);
-  const totals = { calories: 0, protein: 0, carbs: 0, fat: 0 };
-  for (const e of entries) {
-    totals.calories += e.calories;
-    totals.protein  += e.protein;
-    totals.carbs    += e.carbs;
-    totals.fat      += e.fat;
+  try {
+    $('#date-picker').value = state.date;
+    const entries = await CT.db.listEntriesForDate(state.date);
+    const totals = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+    for (const e of entries) {
+      totals.calories += e.calories;
+      totals.protein  += e.protein;
+      totals.carbs    += e.carbs;
+      totals.fat      += e.fat;
+    }
+
+    const exercises = await CT.db.listExercisesForDate(state.date);
+    const burned = exercises.reduce((s, e) => s + (e.calories || 0), 0);
+
+    renderTotals(totals);
+    renderNet(totals, burned);
+    renderMacroPie(totals);
+    renderQuip(totals);
+    renderMeals(entries);
+    renderExercise(exercises, burned);
+    await renderNotes();
+  } catch (e) {
+    console.error('[renderDiary] failed', e);
+    toast('Diary render failed: ' + (e.message || e) + ' - try Settings > Reset, or reset your IndexedDB.', 8000);
   }
-
-  const exercises = await CT.db.listExercisesForDate(state.date);
-  const burned = exercises.reduce((s, e) => s + (e.calories || 0), 0);
-
-  renderTotals(totals);
-  renderNet(totals, burned);
-  renderMacroPie(totals);
-  renderQuip(totals);
-  renderMeals(entries);
-  renderExercise(exercises, burned);
-  await renderNotes();
 }
 
 function renderExercise(list, burned) {
@@ -129,29 +134,63 @@ $('#notes-text').addEventListener('input', () => {
 
 const MACRO_COLORS = { protein: '#7dd3a0', carbs: '#f0c26a', fat: '#f06a6a' };
 
-function makePieSVG(slices, size) {
+function ringSegmentPath(cx, cy, rOuter, rInner, startAngle, endAngle) {
+  const a1 = startAngle * Math.PI / 180;
+  const a2 = endAngle * Math.PI / 180;
+  const large = (endAngle - startAngle) > 180 ? 1 : 0;
+  const x1o = (cx + rOuter * Math.cos(a1)).toFixed(2);
+  const y1o = (cy + rOuter * Math.sin(a1)).toFixed(2);
+  const x2o = (cx + rOuter * Math.cos(a2)).toFixed(2);
+  const y2o = (cy + rOuter * Math.sin(a2)).toFixed(2);
+  const x1i = (cx + rInner * Math.cos(a1)).toFixed(2);
+  const y1i = (cy + rInner * Math.sin(a1)).toFixed(2);
+  const x2i = (cx + rInner * Math.cos(a2)).toFixed(2);
+  const y2i = (cy + rInner * Math.sin(a2)).toFixed(2);
+  return `M${x1o},${y1o} A${rOuter},${rOuter} 0 ${large},1 ${x2o},${y2o} L${x2i},${y2i} A${rInner},${rInner} 0 ${large},0 ${x1i},${y1i} Z`;
+}
+
+function ringSlices(slices, rOuter, rInner, cx, cy, opacity = 1) {
   const total = slices.reduce((s, x) => s + x.value, 0);
   if (total <= 0) return '';
-  const radius = size / 2 - 1;
+  const nonZero = slices.filter(s => s.value > 0);
+  const titleFor = s => s.label ? `<title>${escapeHtml(s.label)}</title>` : '';
+  if (nonZero.length === 1) {
+    const s = nonZero[0];
+    return `<path fill-rule="evenodd" fill="${s.color}" opacity="${opacity}"
+      d="M${cx - rOuter},${cy} a${rOuter},${rOuter} 0 1,0 ${rOuter * 2},0 a${rOuter},${rOuter} 0 1,0 ${-rOuter * 2},0
+         M${cx - rInner},${cy} a${rInner},${rInner} 0 1,0 ${rInner * 2},0 a${rInner},${rInner} 0 1,0 ${-rInner * 2},0">${titleFor(s)}</path>`;
+  }
+  let angle = -90;
+  return nonZero.map(s => {
+    const portion = s.value / total;
+    const next = angle + portion * 360;
+    const d = ringSegmentPath(cx, cy, rOuter, rInner, angle, next);
+    angle = next;
+    return `<path d="${d}" fill="${s.color}" opacity="${opacity}">${titleFor(s)}</path>`;
+  }).join('');
+}
+
+// Concentric-ring macro chart: outer = actual, inner = goal. Both start at 12
+// o'clock so matching splits visually align; drift shows as misaligned arc ends.
+function makeMacroRingsSVG(actual, target, size) {
   const cx = size / 2;
   const cy = size / 2;
-  let angle = -90;
-  const parts = slices.filter(s => s.value > 0).map(s => {
-    const portion = s.value / total;
-    if (portion >= 0.9999) {
-      return `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="${s.color}"/>`;
-    }
-    const a1 = angle * Math.PI / 180;
-    angle += portion * 360;
-    const a2 = angle * Math.PI / 180;
-    const x1 = (cx + radius * Math.cos(a1)).toFixed(2);
-    const y1 = (cy + radius * Math.sin(a1)).toFixed(2);
-    const x2 = (cx + radius * Math.cos(a2)).toFixed(2);
-    const y2 = (cy + radius * Math.sin(a2)).toFixed(2);
-    const large = portion > 0.5 ? 1 : 0;
-    return `<path d="M${cx},${cy} L${x1},${y1} A${radius},${radius} 0 ${large},1 ${x2},${y2} Z" fill="${s.color}"/>`;
-  }).join('');
-  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${parts}</svg>`;
+  const rOuterMax = size / 2 - 2;
+  const rOuterMin = rOuterMax - 16;
+  const rInnerMax = rOuterMin - 4;
+  const rInnerMin = rInnerMax - 14;
+
+  const parts = [];
+  if (actual.reduce((s, x) => s + x.value, 0) > 0) {
+    parts.push(ringSlices(actual, rOuterMax, rOuterMin, cx, cy));
+  } else {
+    const rMid = (rOuterMax + rOuterMin) / 2;
+    parts.push(`<circle cx="${cx}" cy="${cy}" r="${rMid}" fill="none" stroke="var(--line)" stroke-width="${rOuterMax - rOuterMin}" opacity="0.35"/>`);
+  }
+  if (target.reduce((s, x) => s + x.value, 0) > 0) {
+    parts.push(ringSlices(target, rInnerMax, rInnerMin, cx, cy, 0.55));
+  }
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${parts.join('')}</svg>`;
 }
 
 function renderMacroPie(totals) {
@@ -166,25 +205,63 @@ function renderMacroPie(totals) {
   const kcalC = totals.carbs * 4;
   const kcalF = totals.fat * 9;
   const totalKcal = kcalP + kcalC + kcalF;
-  if (totalKcal <= 0) {
+
+  const t = state.targets || {};
+  // Only show the goal ring if the user has explicitly saved targets. A
+  // brand-new or wiped install has default values in memory but no saved
+  // record — treat that as "no goal."
+  const hasGoal = !!state.targetsSaved;
+  const tKcalP = hasGoal ? (t.protein || 0) * 4 : 0;
+  const tKcalC = hasGoal ? (t.carbs   || 0) * 4 : 0;
+  const tKcalF = hasGoal ? (t.fat     || 0) * 9 : 0;
+  const targetKcal = tKcalP + tKcalC + tKcalF;
+
+  // Zero data AND no saved goal: fall back to El Jefe empty state.
+  if (totalKcal <= 0 && targetKcal <= 0) {
     el.classList.add('hidden');
     empty.classList.remove('hidden');
     return;
   }
-  const pct = v => Math.round((v / totalKcal) * 100);
-  const svg = makePieSVG([
-    { value: kcalP, color: MACRO_COLORS.protein },
-    { value: kcalC, color: MACRO_COLORS.carbs },
-    { value: kcalF, color: MACRO_COLORS.fat }
-  ], 130);
+
+  const pct = (v, denom) => denom > 0 ? Math.round((v / denom) * 100) : 0;
+  const tPct = v => pct(v, targetKcal);
+  const aPct = v => pct(v, totalKcal);
+
+  const actualLabel = (name, grams, kcal) =>
+    `Today · ${name} ${r(grams)} g (${aPct(kcal)}% of ${r(totalKcal)} kcal)`;
+  const goalLabel = (name, grams, kcal) =>
+    `Goal · ${name} ${r(grams)} g (${tPct(kcal)}% of ${r(targetKcal)} kcal)`;
+
+  const svg = makeMacroRingsSVG(
+    [
+      { value: kcalP, color: MACRO_COLORS.protein, label: actualLabel('Protein', totals.protein, kcalP) },
+      { value: kcalC, color: MACRO_COLORS.carbs,   label: actualLabel('Carbs',   totals.carbs,   kcalC) },
+      { value: kcalF, color: MACRO_COLORS.fat,     label: actualLabel('Fat',     totals.fat,     kcalF) }
+    ],
+    [
+      { value: tKcalP, color: MACRO_COLORS.protein, label: goalLabel('Protein', t.protein || 0, tKcalP) },
+      { value: tKcalC, color: MACRO_COLORS.carbs,   label: goalLabel('Carbs',   t.carbs   || 0, tKcalC) },
+      { value: tKcalF, color: MACRO_COLORS.fat,     label: goalLabel('Fat',     t.fat     || 0, tKcalF) }
+    ],
+    140
+  );
   el.innerHTML = `
     <div class="pie-wrap">${svg}</div>
+    <div class="pie-note">
+      <span class="pie-note-row"><span class="pie-note-ring outer"></span>Outer: today</span>
+      <span class="pie-note-row"><span class="pie-note-ring inner"></span>Inner: goal</span>
+      <span class="pie-note-hint" title="Hover any ring segment for its exact grams and percentage.">hover for details</span>
+    </div>
     <div class="pie-legend">
-      <div class="pl-head">By calories</div>
-      <div class="pl-item"><span class="dot p"></span>Protein <b>${r(totals.protein)} g</b> · ${pct(kcalP)}%</div>
-      <div class="pl-item"><span class="dot c"></span>Carbs <b>${r(totals.carbs)} g</b> · ${pct(kcalC)}%</div>
-      <div class="pl-item"><span class="dot f"></span>Fat <b>${r(totals.fat)} g</b> · ${pct(kcalF)}%</div>
-      <div class="pl-kcal">${r(totalKcal)} kcal from macros</div>
+      <div class="pl-head">
+        <span title="Outer ring: today's actual macro split by calories.">Actual</span>
+        <span class="pl-head-vs">vs</span>
+        <span title="Inner ring: your target macro split, in calories. Set in Settings - Daily targets.">goal</span>
+      </div>
+      <div class="pl-item"><span class="dot p"></span>Protein <b>${r(totals.protein)}</b> / ${r(t.protein || 0)} g <span class="pl-sub">${aPct(kcalP)}% / ${tPct(tKcalP)}%</span></div>
+      <div class="pl-item"><span class="dot c"></span>Carbs   <b>${r(totals.carbs)}</b>   / ${r(t.carbs   || 0)} g <span class="pl-sub">${aPct(kcalC)}% / ${tPct(tKcalC)}%</span></div>
+      <div class="pl-item"><span class="dot f"></span>Fat     <b>${r(totals.fat)}</b>     / ${r(t.fat     || 0)} g <span class="pl-sub">${aPct(kcalF)}% / ${tPct(tKcalF)}%</span></div>
+      <div class="pl-kcal">${r(totalKcal)} kcal logged${targetKcal > 0 ? ` / ${r(targetKcal)} goal` : ''}</div>
     </div>
   `;
   el.classList.remove('hidden');
@@ -386,6 +463,114 @@ $('#scan-btn').addEventListener('click', () => {
   });
 });
 
+// ------- PHONE SCAN (experimental) -------
+const phoneScanModal = document.getElementById('phone-scan-modal');
+let _phoneScanUnsubCode = null;
+let _phoneScanUnsubErr = null;
+let _phoneScanActive = false;
+let _phoneScanSession = null; // { qr, urls }
+
+phoneScanModal.addEventListener('click', (e) => {
+  // Close button / backdrop just hides the modal. It does NOT stop the server
+  // - only "Stop sharing" does that.
+  if (e.target.dataset.close !== undefined || e.target === phoneScanModal) {
+    phoneScanModal.classList.add('hidden');
+  }
+});
+
+function renderPhoneScanButton() {
+  const btn = $('#phone-scan-btn');
+  if (_phoneScanActive) {
+    btn.classList.add('active');
+    btn.innerHTML = '📱 Phone scan <span class="live-dot"></span>';
+    btn.title = 'Phone scan is active. Click to view the QR code or stop sharing.';
+  } else {
+    btn.classList.remove('active');
+    btn.innerHTML = '📱 Phone scan';
+    btn.title = 'Experimental - scan a barcode with your phone\'s camera over your local network.';
+  }
+}
+
+function renderPhoneScanModal() {
+  if (_phoneScanSession) {
+    $('#phone-scan-qr').innerHTML = `<img src="${_phoneScanSession.qr}" alt="QR code" />`;
+    const urls = _phoneScanSession.urls;
+    $('#phone-scan-url-text').innerHTML = urls.map((u, i) =>
+      `<div class="phone-scan-url-row${i === 0 ? ' primary' : ''}">${escapeHtml(u)}</div>`
+    ).join('');
+    $('#phone-scan-session-actions').classList.remove('hidden');
+  } else {
+    $('#phone-scan-qr').innerHTML = '<div class="phone-scan-status">Starting local server…</div>';
+    $('#phone-scan-url-text').textContent = '';
+    $('#phone-scan-session-actions').classList.add('hidden');
+  }
+}
+
+async function startPhoneScan() {
+  if (!window.ct || !window.ct.remoteScanStart) {
+    toast('Phone scan requires a full app restart after update.');
+    return;
+  }
+
+  // Already running - just show the QR again.
+  if (_phoneScanActive && _phoneScanSession) {
+    renderPhoneScanModal();
+    phoneScanModal.classList.remove('hidden');
+    return;
+  }
+
+  _phoneScanSession = null;
+  renderPhoneScanModal();
+  phoneScanModal.classList.remove('hidden');
+
+  const res = await window.ct.remoteScanStart();
+  if (!res || !res.ok) {
+    $('#phone-scan-qr').innerHTML = `<div class="phone-scan-status">Failed: ${escapeHtml(res && res.error || 'unknown error')}</div>`;
+    return;
+  }
+  _phoneScanSession = {
+    qr: res.qr,
+    urls: res.urls && res.urls.length ? res.urls : [res.url]
+  };
+  _phoneScanActive = true;
+  renderPhoneScanButton();
+  renderPhoneScanModal();
+
+  _phoneScanUnsubCode = window.ct.onRemoteScanCode(async (code) => {
+    toast('Scanned ' + code);
+    // Hide the QR modal but keep the server running so phone can send more.
+    phoneScanModal.classList.add('hidden');
+    try {
+      await handleBarcode(code);
+    } catch (e) {
+      console.error('[phone scan] handleBarcode failed', e);
+      toast('Couldn\'t open food dialog: ' + (e.message || e), 5000);
+    }
+  });
+  _phoneScanUnsubErr = window.ct.onRemoteScanError((msg) => {
+    toast('Phone scan error: ' + msg);
+    endPhoneScanSession();
+  });
+}
+
+async function endPhoneScanSession() {
+  _phoneScanActive = false;
+  _phoneScanSession = null;
+  if (_phoneScanUnsubCode) { _phoneScanUnsubCode(); _phoneScanUnsubCode = null; }
+  if (_phoneScanUnsubErr)  { _phoneScanUnsubErr();  _phoneScanUnsubErr  = null; }
+  phoneScanModal.classList.add('hidden');
+  renderPhoneScanButton();
+  if (window.ct && window.ct.remoteScanStop) {
+    try { await window.ct.remoteScanStop(); } catch {}
+  }
+}
+
+$('#phone-scan-btn').addEventListener('click', () => startPhoneScan());
+$('#phone-scan-stop').addEventListener('click', () => {
+  endPhoneScanSession();
+  toast('Phone scan stopped');
+});
+
 $('#scan-label-btn').addEventListener('click', () => {
   CT.labelScanner.open((parsed) => {
     openCustomModal({
@@ -461,7 +646,8 @@ function openAddModal(food) {
     <div class="add-food">
       <div class="add-food-thumb" id="add-food-thumb" title="Click to change image.">
         ${live.image ? `<img src="${escapeHtml(live.image)}" alt="" />` : `<span class="thumb-empty">no image</span>`}
-        <button type="button" class="thumb-edit" id="add-thumb-edit" title="Change image">✎</button>
+        <button type="button" class="thumb-edit" id="add-thumb-edit" title="Change image (file)">✎</button>
+        <button type="button" class="thumb-paste" id="add-thumb-paste" title="Paste image from clipboard (Ctrl+V also works while this dialog is open)">📋</button>
       </div>
       <div class="info">
         <div class="n">${escapeHtml(food.name)}</div>
@@ -496,6 +682,11 @@ function openAddModal(food) {
         <div class="ne-hint">Changes are saved to this food for next time.</div>
       </div>
       <div class="preview" id="add-preview"></div>
+      ${food.source === 'meal' ? '' : `
+      <label class="save-to-my-foods${food.source === 'custom' ? ' already' : ''}" title="Add this food to the 'My Foods' tab so you can find it again later without searching.">
+        <input type="checkbox" name="save_to_my_foods" ${food.source === 'custom' ? 'checked disabled' : ''} />
+        ${food.source === 'custom' ? 'Already in My Foods' : 'Save to My Foods'}
+      </label>`}
       <div class="actions">
         <button type="button" class="ghost-btn" data-close>Cancel</button>
         <button type="submit" class="primary-btn">Add to diary</button>
@@ -556,12 +747,26 @@ function openAddModal(food) {
   const thumbFile = $('#add-thumb-file');
   const refreshThumb = () => {
     thumbEl.innerHTML = `${live.image ? `<img src="${escapeHtml(live.image)}" alt="" />` : `<span class="thumb-empty">no image</span>`}
-      <button type="button" class="thumb-edit" id="add-thumb-edit" title="Change image">✎</button>`;
+      <button type="button" class="thumb-edit" id="add-thumb-edit" title="Change image (file)">✎</button>
+      <button type="button" class="thumb-paste" id="add-thumb-paste" title="Paste image from clipboard (Ctrl+V also works while this dialog is open)">📋</button>`;
     wireThumb();
   };
   const pickImage = () => thumbFile.click();
+  const pasteImage = async () => {
+    try {
+      const url = await clipboardImageToDataUrl();
+      if (url) { live.image = url; refreshThumb(); }
+      else toast('No image on the clipboard');
+    } catch (e) { toast('Paste failed: ' + (e.message || e)); }
+  };
   const wireThumb = () => {
-    thumbEl.addEventListener('click', pickImage, { once: true });
+    // Click anywhere on the thumb except the paste button → file picker.
+    thumbEl.addEventListener('click', (e) => {
+      if (e.target.closest('#add-thumb-paste')) return;
+      pickImage();
+    }, { once: true });
+    const pasteBtn = thumbEl.querySelector('#add-thumb-paste');
+    if (pasteBtn) pasteBtn.addEventListener('click', (e) => { e.stopPropagation(); pasteImage(); });
   };
   thumbFile.addEventListener('change', async () => {
     const f = thumbFile.files[0];
@@ -570,6 +775,31 @@ function openAddModal(food) {
     try { live.image = await fileToDataUrl(f); refreshThumb(); } catch (e) { console.error(e); }
   });
   wireImageDropZone(thumbEl, (url) => { live.image = url; refreshThumb(); });
+  // Ctrl+V anywhere in the add-food modal pastes an image into the thumb.
+  const onPaste = async (e) => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (const it of items) {
+      if (it.type && it.type.startsWith('image/')) {
+        const file = it.getAsFile();
+        if (file) {
+          e.preventDefault();
+          try { live.image = await fileToDataUrl(file); refreshThumb(); } catch (err) { console.error(err); }
+          return;
+        }
+      }
+    }
+  };
+  addModal.addEventListener('paste', onPaste);
+  // Clean up the paste listener when the modal is dismissed (the next openAddModal
+  // re-installs it). Avoids accumulating handlers across multiple opens.
+  const observer = new MutationObserver(() => {
+    if (addModal.classList.contains('hidden')) {
+      addModal.removeEventListener('paste', onPaste);
+      observer.disconnect();
+    }
+  });
+  observer.observe(addModal, { attributes: true, attributeFilter: ['class'] });
   wireThumb();
 
   update();
@@ -591,8 +821,9 @@ function openAddModal(food) {
 
     let saved = food;
     const isMeal = food.source === 'meal';
+    const saveToMyFoods = fd.get('save_to_my_foods') === 'on';
     const alreadyCached = isMeal || food.source !== 'off' || !!(await CT.db.getFood(food.id));
-    if (!isMeal && (changed || !alreadyCached)) {
+    if (!isMeal && (changed || !alreadyCached || saveToMyFoods)) {
       saved = await CT.db.saveFood({
         ...food,
         serving_size: live.serving_size,
@@ -601,6 +832,7 @@ function openAddModal(food) {
         carbs:    live.carbs,
         fat:      live.fat,
         image:    live.image,
+        source:   saveToMyFoods ? 'custom' : food.source,
         serving_source: changed ? 'custom' : food.serving_source
       });
     }
@@ -1310,13 +1542,13 @@ function makeChartSVG(days, plan, weighins, todayIso, units, anchor) {
 
 // ------- SETTINGS -------
 async function fillSettings() {
-  const t = await CT.db.getSetting('targets', DEFAULT_TARGETS);
-  state.targets = { ...DEFAULT_TARGETS, ...t };
+  await loadTargetsFromDb();
   const f = $('#settings-form');
   f.calories.value = state.targets.calories;
   f.protein.value  = state.targets.protein;
   f.carbs.value    = state.targets.carbs;
   f.fat.value      = state.targets.fat;
+  $('#macro-preset').value = state.targets.preset || 'custom';
   await loadBody();
 }
 
@@ -1484,6 +1716,7 @@ function initBody() {
       state.targets.calories = kcal;
       $('#settings-form').calories.value = kcal;
       await CT.db.setSetting('targets', state.targets);
+      state.targetsSaved = true;
       toast('Calorie target set to ' + kcal);
       renderDiary();
     });
@@ -1497,6 +1730,46 @@ $('#btn-wipe').addEventListener('click', async () => {
   location.reload();
 });
 
+// Conventional macro splits by percentage of calories (protein / carbs / fat).
+// Protein and carbs are 4 kcal/g; fat is 9 kcal/g.
+const MACRO_PRESETS = {
+  balanced:      { p: 25, c: 50, f: 25 },
+  weight_loss:   { p: 40, c: 30, f: 30 },
+  bulking:       { p: 30, c: 45, f: 25 },
+  recomp:        { p: 35, c: 40, f: 25 },
+  low_carb:      { p: 30, c: 20, f: 50 },
+  keto:          { p: 20, c:  5, f: 75 },
+  endurance:     { p: 20, c: 55, f: 25 },
+  high_protein:  { p: 40, c: 35, f: 25 }
+};
+
+function applyMacroPreset(presetKey) {
+  const p = MACRO_PRESETS[presetKey];
+  const f = $('#settings-form');
+  const kcal = Number(f.calories.value) || 0;
+  if (!p || kcal <= 0) return;
+  f.protein.value = Math.round(kcal * p.p / 100 / 4);
+  f.carbs.value   = Math.round(kcal * p.c / 100 / 4);
+  f.fat.value     = Math.round(kcal * p.f / 100 / 9);
+}
+
+$('#macro-preset').addEventListener('change', (e) => {
+  if (e.target.value !== 'custom') applyMacroPreset(e.target.value);
+});
+
+// If the user recalculates calories with a preset active, re-apply it.
+$('#settings-form').calories.addEventListener('input', () => {
+  const sel = $('#macro-preset').value;
+  if (sel !== 'custom') applyMacroPreset(sel);
+});
+
+// Manually touching any macro flips the dropdown to Custom.
+['protein', 'carbs', 'fat'].forEach(name => {
+  $('#settings-form')[name].addEventListener('input', () => {
+    $('#macro-preset').value = 'custom';
+  });
+});
+
 $('#settings-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
@@ -1504,9 +1777,11 @@ $('#settings-form').addEventListener('submit', async (e) => {
     calories: Number(fd.get('calories')) || 0,
     protein:  Number(fd.get('protein'))  || 0,
     carbs:    Number(fd.get('carbs'))    || 0,
-    fat:      Number(fd.get('fat'))      || 0
+    fat:      Number(fd.get('fat'))      || 0,
+    preset:   fd.get('macro_preset') || 'custom'
   };
   await CT.db.setSetting('targets', state.targets);
+  state.targetsSaved = true;
   toast('Targets saved');
   renderDiary();
 });
@@ -1613,8 +1888,14 @@ $('#plan-exercise').addEventListener('input', () => {
   }, 250);
 });
 
+async function loadTargetsFromDb() {
+  const saved = await CT.db.getSetting('targets', null);
+  state.targets = { ...DEFAULT_TARGETS, ...(saved || {}) };
+  state.targetsSaved = !!saved;
+}
+
 (async function init() {
-  state.targets = { ...DEFAULT_TARGETS, ...(await CT.db.getSetting('targets', {})) };
+  await loadTargetsFromDb();
   initBody();
   await renderDiary();
 })();
