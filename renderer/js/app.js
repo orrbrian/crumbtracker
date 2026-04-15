@@ -33,6 +33,47 @@ function toast(msg, ms = 2200) {
 function $(sel, root = document) { return root.querySelector(sel); }
 function $$(sel, root = document) { return Array.from(root.querySelectorAll(sel)); }
 
+// Themed replacement for window.confirm. Returns a Promise that resolves to
+// true (OK) / false (Cancel/Esc/backdrop click). Supports an optional title,
+// body (string or HTML), button labels, and a destructive-styling flag.
+function confirmDialog({ title = 'Confirm', body = '', okLabel = 'OK', cancelLabel = 'Cancel', destructive = false } = {}) {
+  return new Promise(resolve => {
+    const modal = document.getElementById('confirm-modal');
+    const yes = document.getElementById('confirm-yes');
+    const no  = document.getElementById('confirm-no');
+    document.getElementById('confirm-title').textContent = title;
+    const bodyEl = document.getElementById('confirm-body');
+    if (body && body.trim().startsWith('<')) bodyEl.innerHTML = body;
+    else bodyEl.textContent = body;
+    yes.textContent = okLabel;
+    no.textContent = cancelLabel;
+    yes.classList.toggle('danger-btn', !!destructive);
+    yes.classList.toggle('primary-btn', !destructive);
+
+    const cleanup = (result) => {
+      modal.classList.add('hidden');
+      yes.removeEventListener('click', onYes);
+      no.removeEventListener('click', onNo);
+      modal.removeEventListener('click', onBackdrop);
+      document.removeEventListener('keydown', onKey);
+      resolve(result);
+    };
+    const onYes = () => cleanup(true);
+    const onNo  = () => cleanup(false);
+    const onBackdrop = (e) => { if (e.target === modal) cleanup(false); };
+    const onKey = (e) => {
+      if (e.key === 'Escape') cleanup(false);
+      else if (e.key === 'Enter') cleanup(true);
+    };
+    yes.addEventListener('click', onYes);
+    no.addEventListener('click', onNo);
+    modal.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onKey);
+    modal.classList.remove('hidden');
+    yes.focus();
+  });
+}
+
 // ------- NAV -------
 $$('.nav-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -782,7 +823,21 @@ async function doSearch() {
   }
 }
 
-function renderResults(container, foods, { showAdd = true, showDelete = false } = {}) {
+function renderFoodSourceBadge(f) {
+  const m = f.entry_method || (f.source === 'custom' ? null : (f.source === 'off' ? 'searched' : null));
+  // Map to label + tooltip + style class.
+  const map = {
+    manual:   { label: 'Manual',         tip: 'You typed this food in via Custom food.' },
+    scanned:  { label: 'Scanned',        tip: 'Captured by scanning a barcode (camera, image, or phone scan).' },
+    searched: { label: 'Open Food Facts', tip: 'Came from an Open Food Facts search and was saved to My Foods.' },
+    label:    { label: 'Label OCR',       tip: 'Pre-filled from a Nutrition Facts label scan, then saved.' }
+  };
+  const info = map[m];
+  if (!info) return `<div class="src-badge unknown" title="Origin unknown - this record predates source tracking.">Saved</div>`;
+  return `<div class="src-badge ${m}" title="${escapeHtml(info.tip)}">${escapeHtml(info.label)}</div>`;
+}
+
+function renderResults(container, foods, { showAdd = true, showDelete = false, showSource = false } = {}) {
   container.innerHTML = '';
   foods.forEach(f => {
     const el = document.createElement('div');
@@ -792,6 +847,7 @@ function renderResults(container, foods, { showAdd = true, showDelete = false } 
       <div class="info">
         <div class="n">${escapeHtml(f.name)} ${f._exact ? '<span class="badge" title="Found by exact barcode lookup.">exact match</span>' : ''}</div>
         <div class="sub">${escapeHtml(f.brand || '')}${f.brand ? ' · ' : ''}${r(f.calories)} kcal / ${r(f.serving_size)} ${escapeHtml(f.serving_unit)}${f.serving_source && f.serving_source !== 'product' && f.serving_source !== 'custom' ? ' <em class="est" title="Serving size was inferred from the product category, not a label. Double-check before logging.">(est.)</em>' : ''}${f.barcode ? ' · ' + escapeHtml(f.barcode) : ''}</div>
+        ${showSource ? renderFoodSourceBadge(f) : ''}
       </div>
       <div class="actions"></div>
     `;
@@ -809,7 +865,12 @@ function renderResults(container, foods, { showAdd = true, showDelete = false } 
       del.textContent = 'Delete';
       del.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (!confirm('Delete this custom food?')) return;
+        if (!await confirmDialog({
+          title: 'Delete custom food?',
+          body: `"${f.name}" will be removed from My Foods. Existing diary entries that referenced it will keep their snapshot macros.`,
+          okLabel: 'Delete',
+          destructive: true
+        })) return;
         await CT.db.deleteFood(f.id);
         renderCustomFoods();
       });
@@ -947,7 +1008,8 @@ $('#scan-label-btn').addEventListener('click', () => {
       calories: parsed.calories || 0,
       protein: parsed.protein || 0,
       carbs: parsed.carbs || 0,
-      fat: parsed.fat || 0
+      fat: parsed.fat || 0,
+      _method: 'label'
     });
     toast('Fill in the name and save.');
   });
@@ -960,7 +1022,7 @@ async function handleBarcode(code) {
     try {
       const remote = await CT.api.lookupBarcode(code);
       if (remote) {
-        food = await CT.db.saveFood(remote); // cache locally
+        food = await CT.db.saveFood({ ...remote, entry_method: 'scanned' }); // cache locally
       }
     } catch (e) {
       toast('Lookup error: ' + e.message, 3000);
@@ -968,7 +1030,11 @@ async function handleBarcode(code) {
     }
   }
   if (!food) {
-    if (confirm(`No product found for ${code}. Create a custom food?`)) {
+    if (await confirmDialog({
+      title: 'Product not found',
+      body: `Open Food Facts has nothing for barcode <b>${escapeHtml(code)}</b>. Create a custom food with this barcode attached?`,
+      okLabel: 'Create custom food'
+    })) {
       openCustomModal({ barcode: code });
     }
     return;
@@ -1202,7 +1268,11 @@ function openAddModal(food, editingEntry = null) {
         fat:      live.fat,
         image:    live.image,
         source:   saveToMyFoods ? 'custom' : food.source,
-        serving_source: changed ? 'custom' : food.serving_source
+        serving_source: changed ? 'custom' : food.serving_source,
+        // First-time save of an OFF search result: mark as 'searched' so it's
+        // distinguishable from scanned foods later. Existing entry_method
+        // (e.g. 'scanned') is preserved by db.saveFood.
+        entry_method: food.entry_method || (food.source === 'off' ? 'searched' : 'manual')
       });
     }
 
@@ -1261,6 +1331,11 @@ function setCustomImage(dataUrl) {
   }
 }
 
+// Stash the entry_method for the next custom-form save. Set by callers that
+// open the modal pre-populated (e.g. label scanner sets 'label'). Cleared on
+// modal close. Default for a blank Custom food click is 'manual'.
+let _customEntryMethod = 'manual';
+
 function openCustomModal(initial = {}) {
   $('#custom-title').textContent = initial.id ? 'Edit custom food' : 'Custom food';
   customForm.reset();
@@ -1275,6 +1350,7 @@ function openCustomModal(initial = {}) {
   customForm.carbs.value    = initial.carbs    ?? '';
   customForm.fat.value      = initial.fat      ?? '';
   setCustomImage(initial.image || '');
+  _customEntryMethod = initial._method || 'manual';
   customModal.classList.remove('hidden');
 }
 
@@ -1344,7 +1420,8 @@ customForm.addEventListener('submit', async (e) => {
     protein: fd.get('protein'),
     carbs: fd.get('carbs'),
     fat: fd.get('fat'),
-    image: fd.get('image') || ''
+    image: fd.get('image') || '',
+    entry_method: _customEntryMethod
   });
   customModal.classList.add('hidden');
   toast('Saved');
@@ -1364,7 +1441,7 @@ async function renderCustomFoods() {
     el.innerHTML = `<div class="empty">No matches for "${escapeHtml(filter)}".</div>`;
     return true;
   }
-  renderResults(el, filtered, { showAdd: true, showDelete: true });
+  renderResults(el, filtered, { showAdd: true, showDelete: true, showSource: true });
   return true;
 }
 
@@ -1454,7 +1531,12 @@ async function renderMealLibrary() {
     delBtn.textContent = 'Delete';
     delBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      if (!confirm(`Delete meal "${meal.name}"?`)) return;
+      if (!await confirmDialog({
+        title: 'Delete meal?',
+        body: `"${escapeHtml(meal.name)}" will be removed. Past diary entries logged from this meal keep their snapshot macros.`,
+        okLabel: 'Delete',
+        destructive: true
+      })) return;
       await CT.db.deleteMeal(meal.id);
       renderMealLibrary();
     });
@@ -1730,10 +1812,28 @@ async function renderProgress() {
   const profile = { ...DEFAULT_BODY, ...(await CT.db.getSetting('body', {})) };
   const targets = { ...DEFAULT_TARGETS, ...(await CT.db.getSetting('targets', {})) };
 
+  // Always show the weigh-in list, regardless of body profile completeness.
+  // Logging weight should never be hidden behind "fill out body stats first."
+  const weightsAll = await CT.db.listWeights();
+  const listUnits = profile.units || 'imperial';
+  listEl.innerHTML = renderWeighinList(weightsAll, listUnits);
+  $$('#weighin-list .del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const date = btn.dataset.date;
+      if (!await confirmDialog({
+        title: 'Delete weigh-in?',
+        body: `Remove the weigh-in logged on ${escapeHtml(date)}?`,
+        okLabel: 'Delete',
+        destructive: true
+      })) return;
+      await CT.db.deleteWeight(date);
+      renderProgress();
+    });
+  });
+
   if (!profile.weight_kg || !profile.height_cm || !profile.age) {
-    chartEl.innerHTML = `<div class="chart-empty">Fill in Settings → Body &amp; activity to see projections.</div>`;
+    chartEl.innerHTML = `<div class="chart-empty">Fill in Settings → Body &amp; activity to see projections.${weightsAll.length ? ' Your weigh-ins are saved below.' : ''}</div>`;
     statsEl.innerHTML = '';
-    listEl.innerHTML = '';
     return;
   }
 
@@ -1771,11 +1871,17 @@ async function renderProgress() {
 
   chartEl.innerHTML = makeChartSVG(days, plan, weighinsInRange, today, profile.units, anchor);
   statsEl.innerHTML = buildProgressStats(profile, days, plan, weighinsInRange, today, planDailyDeficit, anchor, plan_exercise);
+  // Re-render list with profile units (in case they differ from default).
   listEl.innerHTML = renderWeighinList(weights, profile.units);
   $$('#weighin-list .del').forEach(btn => {
     btn.addEventListener('click', async () => {
       const date = btn.dataset.date;
-      if (!confirm('Delete weigh-in for ' + date + '?')) return;
+      if (!await confirmDialog({
+        title: 'Delete weigh-in?',
+        body: `Remove the weigh-in logged on ${escapeHtml(date)}?`,
+        okLabel: 'Delete',
+        destructive: true
+      })) return;
       await CT.db.deleteWeight(date);
       renderProgress();
     });
@@ -2133,7 +2239,12 @@ $('#import-file').addEventListener('change', async () => {
   const file = $('#import-file').files[0];
   $('#import-file').value = '';
   if (!file) return;
-  if (!confirm(`Import "${file.name}"? This will REPLACE all current diary entries, custom foods, meals, and settings. Export your current data first if you want a backup.`)) return;
+  if (!await confirmDialog({
+    title: 'Import data?',
+    body: `<b>${escapeHtml(file.name)}</b> will <b>replace</b> all current diary entries, custom foods, meals, and settings. Export your current data first if you want a backup.`,
+    okLabel: 'Import (replace all)',
+    destructive: true
+  })) return;
   try {
     const text = await file.text();
     const payload = JSON.parse(text);
@@ -2146,8 +2257,18 @@ $('#import-file').addEventListener('change', async () => {
 });
 
 $('#btn-wipe').addEventListener('click', async () => {
-  if (!confirm('This will permanently erase all diary entries, custom foods, cached lookups, and saved targets. Continue?')) return;
-  if (!confirm('Really wipe everything? This cannot be undone.')) return;
+  if (!await confirmDialog({
+    title: 'Wipe all data?',
+    body: 'This will permanently erase all diary entries, custom foods, cached lookups, meals, weigh-ins, exercise, notes, and saved targets.',
+    okLabel: 'Continue',
+    destructive: true
+  })) return;
+  if (!await confirmDialog({
+    title: 'Really wipe everything?',
+    body: 'This cannot be undone. Consider exporting your data first.',
+    okLabel: 'Wipe all data',
+    destructive: true
+  })) return;
   await CT.db.wipeAll();
   location.reload();
 });

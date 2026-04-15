@@ -21,7 +21,7 @@
       <img src="assets/mascot-small.png" alt="El Jefe" />
       <span class="mascot-name">El Jefe</span>
     </div>
-    <div class="nav-foot">Local · v0.8.0</div>
+    <div class="nav-foot">Local · v0.8.1</div>
   </nav>
 
   <main class="content">
@@ -327,7 +327,7 @@
         <img class="about-logo" src="assets/alcorr.png" alt="Alcorr Software, Inc." />
         <h1 class="about-title">CrumbTracker</h1>
         <div class="about-sub">Local calorie &amp; nutrition tracker</div>
-        <div class="about-version">Version 0.8.0</div>
+        <div class="about-version">Version 0.8.1</div>
         <div class="about-meta">
           <div>Built by <b>Alcorr Software, Inc.</b></div>
           <div>All data stays on this machine.</div>
@@ -520,6 +520,18 @@
           <button type="submit" class="primary-btn">Save</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- CONFIRM MODAL (themed replacement for native confirm()) -->
+  <div class="modal hidden" id="confirm-modal">
+    <div class="modal-card confirm-card">
+      <header><h3 id="confirm-title">Confirm</h3></header>
+      <div class="confirm-body" id="confirm-body"></div>
+      <div class="form-actions">
+        <button type="button" class="ghost-btn" id="confirm-no">Cancel</button>
+        <button type="button" class="primary-btn" id="confirm-yes">OK</button>
+      </div>
     </div>
   </div>
 

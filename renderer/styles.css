@@ -845,6 +845,36 @@ body { display: flex; }
 .export-pdf-info { color: var(--muted); font-size: 12px; padding: 6px 0; }
 .export-pdf-info.error { color: var(--danger); }
 
+.src-badge {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  background: var(--bg);
+  cursor: help;
+}
+.src-badge.manual   { color: var(--accent); border-color: var(--accent); }
+.src-badge.scanned  { color: var(--warn);   border-color: var(--warn); }
+.src-badge.searched { color: #7dc3f0;       border-color: #7dc3f0; }
+.src-badge.label    { color: #c8a8e3;       border-color: #c8a8e3; }
+.src-badge.unknown  { font-style: italic; }
+
+.confirm-card { max-width: 420px; }
+.confirm-card header { padding-bottom: 6px; }
+.confirm-body {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 4px 0 14px;
+}
+.confirm-body b { color: var(--text); }
+
 .settings-section { margin-bottom: 18px; }
 .settings-section h3 {
   margin: 0 0 8px;

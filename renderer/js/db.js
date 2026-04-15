@@ -92,6 +92,11 @@ CT.db = {
       fat: Number(food.fat) || 0,
       image: food.image || (prior && prior.image) || '',
       source: food.source || 'custom',
+      // How this record was created: 'manual' | 'scanned' | 'searched' | 'label'.
+      // Preserved across updates if the caller doesn't supply one, so promoting
+      // a scanned food into My Foods (Save to My Foods checkbox) keeps the
+      // original entry method.
+      entry_method: food.entry_method || (prior && prior.entry_method) || null,
       last_amount: Number(food.last_amount) || (prior && Number(prior.last_amount)) || 0,
       updated_at: Date.now()
     };
