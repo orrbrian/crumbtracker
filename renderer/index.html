@@ -21,7 +21,7 @@
       <img src="assets/mascot-small.png" alt="El Jefe" />
       <span class="mascot-name">El Jefe</span>
     </div>
-    <div class="nav-foot">Local · v0.7.3</div>
+    <div class="nav-foot">Local · v0.8.0</div>
   </nav>
 
   <main class="content">
@@ -33,6 +33,7 @@
           <input type="date" id="date-picker" />
           <button id="date-next" class="icon-btn">›</button>
           <button id="date-today" class="ghost-btn">Today</button>
+          <button id="btn-export-pdf" class="ghost-btn" title="Save a 1-7 day range of your diary as a PDF.">📄 Export PDF</button>
         </div>
       </header>
       <div class="totals-bar" id="totals-bar"></div>
@@ -84,6 +85,9 @@
       </div>
 
       <div class="foods-panel hidden" id="panel-custom">
+        <div class="custom-filter-row">
+          <input id="custom-filter" type="text" placeholder="Filter by name or brand..." />
+        </div>
         <div class="results" id="custom-results"></div>
       </div>
 
@@ -161,7 +165,10 @@
             <ul>
               <li><b>Totals bar</b> — four cards showing Calories / Protein / Carbs / Fat vs your targets, with a progress bar each. Bars turn red when you go over.</li>
               <li><b>Over-budget quip</b> — a small italic line appears under the totals when you exceed calories. Light ribbing ≤10% over, sharper up to 25%, dry past 50%. Deterministic per (date, tier) so it doesn't flicker as you log.</li>
-              <li><b>Meal sections</b> — Breakfast, Lunch, Dinner, Snacks. Click <em>+ Add food</em> in a section header to jump to Foods with that section pre-selected. (Not to be confused with the <em>Meals</em> tab under Foods, which is for composed recipes — see that section below.)</li>
+              <li><b>Meal sections</b> - Breakfast, Lunch, Dinner, Snacks. Click <em>+ Add food</em> in a section header to jump to Foods with that section pre-selected. (Not to be confused with the <em>Meals</em> tab under Foods, which is for composed recipes - see that section below.)</li>
+              <li><b>Edit entries in place</b> - each logged entry has a ✎ pencil next to the ✕. Click it to reopen the Add dialog pre-filled with the entry's amount, servings, meal section, and date. Saving replaces the original entry with your edits (no double-count).</li>
+              <li><b>↻ Copy from...</b> - each meal section has a copy button that pulls that section's entries from another day into today. Quick shortcuts for Yesterday / 2 days ago / Last week, or pick any date. A preview shows what'll be copied before you commit.</li>
+              <li><b>📄 Export PDF</b> - button next to the date navigation. Exports 1 to 7 days of diary as a single PDF (Letter, portrait). Shortcuts for Today only / Last 3 days / Last 7 days, or pick a custom range. Empty days in a multi-day export are skipped. The PDF is a clean light-theme layout with totals per day, meal tables (name, amount, kcal, P/C/F), exercise, and notes. Uses Chromium's built-in PDF engine - text stays selectable and searchable, images are vector where possible.</li>
               <li><b>Amount vs servings</b> — when adding a food, the <em>Amount</em> input (g/ml) and <em>Servings</em> input are linked. Edit either; macros recalculate live. Last amount is remembered per food for next time.</li>
               <li><b>Exercise</b> — logged separately from meals. Calories burned never subtract from your "Calories in" total; they show up as <em>Net calories</em> in the right sidebar.</li>
               <li><b>Notes</b> — freeform text per day. Auto-saves 400 ms after you stop typing.</li>
@@ -189,7 +196,7 @@
                   <li>Windows: install a virtual-webcam app (e.g. <em>DroidCam</em>, <em>Iriun</em>, or <em>Camo</em>) plus its phone app, then select it from the dropdown.</li>
                 </ul>
               </li>
-              <li><b>Custom foods</b> — type nutrition values in directly. Attach a barcode so future scans resolve locally without hitting the API.</li>
+              <li><b>Custom foods</b> - type nutrition values in directly. Attach a barcode so future scans resolve locally without hitting the API. The <em>My Foods</em> tab has a filter box at the top - start typing to narrow by name or brand.</li>
               <li><b>Food images</b> - custom foods have an image picker at the top of the form (📁 Choose, 📋 Paste, or drop a file; Ctrl+V also pastes). The <em>Add to diary</em> dialog also lets you edit the food's image inline: click the thumbnail (or the ✎ pencil) for a file picker, click the 📋 button to paste from clipboard, drop a file onto the thumb, or Ctrl+V anywhere in the dialog. <em>Paste</em> works with Windows Snipping Tool captures and with <em>Copy Image</em> from a browser (both bitmap and image-URL clipboard payloads are handled). Images are downscaled to 400 px JPEG data URLs and stored on the food record, so they travel with the food and work offline.</li>
               <li><b>Nutrition missing?</b> When a food has 0 kcal, the add-modal auto-expands a "Nutrition label" section. Enter values once — they're saved back to the food for next time.</li>
               <li><b>(est.)</b> tag — serving size was inferred from the product's category, not a real label. Double-check before logging.</li>
@@ -271,6 +278,7 @@
               <li><b>Units</b> - toggle lb/ft·in vs kg/cm at any time. Existing values convert automatically.</li>
               <li><b>Daily targets</b> - calorie and macro goals (grams). Totals bar and macro rings on the diary track against these.</li>
               <li><b>Macro preset</b> - a dropdown with conventional splits (Balanced, Weight loss, Bulking, Body recomp, Low carb, Keto, Endurance, High protein). Pick one to auto-fill Protein/Carbs/Fat grams from your current Daily calories. Editing any macro manually flips it back to <em>Custom</em>. Hover each option for what it's typically used for. These are industry-convention splits - not medical advice.</li>
+              <li><b>Backup &amp; restore</b> - <em>Export data...</em> downloads a JSON file containing every store (foods, entries, meals, settings, notes, weights, exercise). Keep the file somewhere safe as a backup, or use it to move your data to another PC. <em>Import data...</em> replaces all current data with the contents of a previously exported file - prompt-confirmed, and irreversible once accepted, so export current data first if you want a fallback.</li>
               <li><b>Reset</b> - wipes every object store (foods, entries, settings, notes, weigh-ins, exercise, meals). Double-confirmed. Useful before sharing the app or starting fresh.</li>
             </ul>
           </article>
@@ -319,7 +327,7 @@
         <img class="about-logo" src="assets/alcorr.png" alt="Alcorr Software, Inc." />
         <h1 class="about-title">CrumbTracker</h1>
         <div class="about-sub">Local calorie &amp; nutrition tracker</div>
-        <div class="about-version">Version 0.7.3</div>
+        <div class="about-version">Version 0.8.0</div>
         <div class="about-meta">
           <div>Built by <b>Alcorr Software, Inc.</b></div>
           <div>All data stays on this machine.</div>
@@ -403,6 +411,16 @@
           </div>
           <button class="primary-btn" type="submit">Save targets</button>
         </form>
+      </div>
+
+      <div class="settings-section">
+        <h3>Backup &amp; restore</h3>
+        <p class="settings-subnote">Export your entire CrumbTracker database as a JSON file. Keep a copy for backup, or transfer between machines. Import will <b>replace</b> all existing data.</p>
+        <div class="backup-actions">
+          <button id="btn-export" class="ghost-btn" type="button" title="Download a JSON snapshot of all diary entries, custom foods, meals, settings, notes, weights, and exercise.">📥 Export data...</button>
+          <input type="file" id="import-file" accept=".json,application/json" style="display:none" />
+          <button id="btn-import" class="ghost-btn" type="button" title="Replace all current data with the contents of a previously exported JSON file.">📤 Import data...</button>
+        </div>
       </div>
 
       <div class="settings-note">All data is stored locally on this machine. Nutrition lookups use Open Food Facts. Mifflin–St Jeor formula for BMR.</div>
@@ -500,6 +518,45 @@
         <div class="form-actions">
           <button type="button" class="ghost-btn" data-close>Cancel</button>
           <button type="submit" class="primary-btn">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- EXPORT PDF MODAL -->
+  <div class="modal hidden" id="export-pdf-modal">
+    <div class="modal-card">
+      <header><h3>Export diary to PDF</h3><button class="close-btn" data-close>✕</button></header>
+      <form class="custom-form" id="export-pdf-form">
+        <div class="export-pdf-shortcuts" id="export-pdf-shortcuts"></div>
+        <div class="row-3" style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
+          <label>From <input type="date" id="export-pdf-from" required /></label>
+          <label>To <input type="date" id="export-pdf-to" required /></label>
+        </div>
+        <div class="export-pdf-info" id="export-pdf-info"></div>
+        <div class="form-note">Range is limited to 1-7 days. Days with no entries are skipped.</div>
+        <div class="form-actions">
+          <button type="button" class="ghost-btn" data-close>Cancel</button>
+          <button type="submit" class="primary-btn">Save PDF...</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- COPY MEAL MODAL -->
+  <div class="modal hidden" id="copy-meal-modal">
+    <div class="modal-card">
+      <header><h3 id="copy-meal-title">Copy from…</h3><button class="close-btn" data-close>✕</button></header>
+      <form class="custom-form" id="copy-meal-form">
+        <div class="copy-meal-shortcuts" id="copy-meal-shortcuts"></div>
+        <label>From date <input type="date" id="copy-meal-date" required /></label>
+        <label>From section
+          <select id="copy-meal-source"></select>
+        </label>
+        <div class="copy-meal-preview" id="copy-meal-preview"></div>
+        <div class="form-actions">
+          <button type="button" class="ghost-btn" data-close>Cancel</button>
+          <button type="submit" class="primary-btn">Copy entries</button>
         </div>
       </form>
     </div>

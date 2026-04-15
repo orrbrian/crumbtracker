@@ -1,5 +1,6 @@
-const { app, BrowserWindow, session, ipcMain, desktopCapturer, screen, nativeTheme, clipboard } = require('electron');
+const { app, BrowserWindow, session, ipcMain, desktopCapturer, screen, nativeTheme, clipboard, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const remoteScanner = require('./remote-scanner');
 const qrcode = require('qrcode');
 
@@ -132,6 +133,41 @@ ipcMain.handle('viewfinder:capture', async (_e, { toolbarHeight = 0 } = {}) => {
     return { ok: false, error: String(err && err.message || err) };
   } finally {
     if (viewfinderWindow) { try { viewfinderWindow.close(); } catch {} }
+  }
+});
+
+ipcMain.handle('pdf:exportDiary', async (_e, { html, defaultFilename = 'crumbtracker-diary.pdf' } = {}) => {
+  if (typeof html !== 'string' || !html.length) return { ok: false, error: 'No HTML provided' };
+
+  const saveRes = await dialog.showSaveDialog(mainWindow, {
+    title: 'Save diary as PDF',
+    defaultPath: defaultFilename,
+    filters: [{ name: 'PDF', extensions: ['pdf'] }]
+  });
+  if (saveRes.canceled || !saveRes.filePath) return { ok: false, canceled: true };
+
+  // Render in a hidden off-screen window so the print layout doesn't disturb
+  // the main window. The window is disposable — loaded via data URL, printed,
+  // and closed in the finally block.
+  const printWin = new BrowserWindow({
+    show: false,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
+  });
+  try {
+    const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
+    await printWin.loadURL(dataUrl);
+    const pdf = await printWin.webContents.printToPDF({
+      pageSize: 'Letter',
+      printBackground: true,
+      margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.5 }
+    });
+    await fs.promises.writeFile(saveRes.filePath, pdf);
+    return { ok: true, path: saveRes.filePath };
+  } catch (e) {
+    console.error('[pdf:exportDiary] failed', e);
+    return { ok: false, error: String(e && e.message || e) };
+  } finally {
+    try { printWin.destroy(); } catch {}
   }
 });
 

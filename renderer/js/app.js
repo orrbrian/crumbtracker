@@ -329,12 +329,14 @@ function renderMeals(entries) {
             </div>
             <div class="macro">${formatMacros(e)}</div>
             <div class="kcal">${r(e.calories)} kcal</div>
+            <button class="edit" title="Edit entry">✎</button>
             <button class="del" title="Remove">✕</button>
           </div>`).join('')
       : '';
     return `<div class="meal${list.length ? ' has-entries' : ''}" data-meal="${key}">
       <h3>${label} <span class="kcal">${r(kcal)} kcal</span>
         <button class="ghost-btn add-here" data-add="${key}">+ Add food</button>
+        <button class="ghost-btn copy-here" data-copy="${key}" title="Copy this meal's entries from another day into today.">↻ Copy from…</button>
       </h3>
       ${items}
     </div>`;
@@ -347,6 +349,33 @@ function renderMeals(entries) {
       renderDiary();
     });
   });
+  $$('#meals .edit').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.closest('.entry').dataset.id;
+      const entry = entries.find(en => en.id === id);
+      if (!entry) return;
+      let food = await CT.db.getFood(entry.food_id);
+      if (!food) {
+        // Original food was deleted; synthesize a one-off from the entry so
+        // the user can still edit the amount/meal/date without losing it.
+        const perServing = (v) => entry.servings ? v / entry.servings : v;
+        food = {
+          id: entry.food_id,
+          name: entry.name,
+          brand: entry.brand || '',
+          serving_size: entry.serving_size,
+          serving_unit: entry.serving_unit,
+          calories: perServing(entry.calories),
+          protein:  perServing(entry.protein),
+          carbs:    perServing(entry.carbs),
+          fat:      perServing(entry.fat),
+          image: '',
+          source: 'ephemeral'
+        };
+      }
+      openAddModal(food, entry);
+    });
+  });
   $$('#meals [data-add]').forEach(btn => {
     btn.addEventListener('click', () => {
       state.meal = btn.dataset.add;
@@ -356,7 +385,343 @@ function renderMeals(entries) {
       $('#search-input').focus();
     });
   });
+  $$('#meals [data-copy]').forEach(btn => {
+    btn.addEventListener('click', () => openCopyMealModal(btn.dataset.copy));
+  });
 }
+
+// ------- EXPORT DIARY TO PDF -------
+const exportPdfModal = document.getElementById('export-pdf-modal');
+const exportPdfForm = document.getElementById('export-pdf-form');
+
+exportPdfModal.addEventListener('click', (e) => {
+  if (e.target.dataset.close !== undefined || e.target === exportPdfModal) exportPdfModal.classList.add('hidden');
+});
+
+$('#btn-export-pdf').addEventListener('click', () => openExportPdfModal());
+
+function openExportPdfModal() {
+  const today = state.date;
+  const end = new Date(today + 'T00:00:00');
+  const start = new Date(end);
+  start.setDate(start.getDate() - 6); // default: last 7 days ending today
+  $('#export-pdf-from').value = isoDate(start);
+  $('#export-pdf-to').value   = today;
+
+  $('#export-pdf-shortcuts').innerHTML = `
+    <button type="button" class="ghost-btn small" data-days="1">Today only</button>
+    <button type="button" class="ghost-btn small" data-days="3">Last 3 days</button>
+    <button type="button" class="ghost-btn small" data-days="7">Last 7 days</button>
+  `;
+  $$('#export-pdf-shortcuts [data-days]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const n = Number(btn.dataset.days);
+      const e = new Date(state.date + 'T00:00:00');
+      const s = new Date(e);
+      s.setDate(s.getDate() - (n - 1));
+      $('#export-pdf-from').value = isoDate(s);
+      $('#export-pdf-to').value   = isoDate(e);
+      updateExportPdfInfo();
+    });
+  });
+
+  $('#export-pdf-from').addEventListener('input', updateExportPdfInfo);
+  $('#export-pdf-to').addEventListener('input', updateExportPdfInfo);
+
+  updateExportPdfInfo();
+  exportPdfModal.classList.remove('hidden');
+}
+
+function updateExportPdfInfo() {
+  const from = $('#export-pdf-from').value;
+  const to = $('#export-pdf-to').value;
+  const info = $('#export-pdf-info');
+  if (!from || !to) { info.textContent = ''; return; }
+  const days = daysBetween(from, to);
+  if (days === null) { info.textContent = 'Invalid date range.'; info.className = 'export-pdf-info error'; return; }
+  if (days < 1) { info.textContent = '"To" date must be the same or later than "From."'; info.className = 'export-pdf-info error'; return; }
+  if (days > 7) { info.textContent = `${days} days selected — max is 7.`; info.className = 'export-pdf-info error'; return; }
+  info.textContent = `${days} day${days === 1 ? '' : 's'} selected.`;
+  info.className = 'export-pdf-info';
+}
+
+function daysBetween(fromIso, toIso) {
+  const from = new Date(fromIso + 'T00:00:00');
+  const to = new Date(toIso + 'T00:00:00');
+  if (isNaN(from) || isNaN(to)) return null;
+  return Math.round((to - from) / 86400000) + 1;
+}
+
+exportPdfForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const from = $('#export-pdf-from').value;
+  const to = $('#export-pdf-to').value;
+  const days = daysBetween(from, to);
+  if (!days || days < 1 || days > 7) { toast('Pick a range between 1 and 7 days.'); return; }
+  if (!window.ct || !window.ct.exportDiaryPdf) {
+    toast('PDF export requires a full app restart after update.');
+    return;
+  }
+  exportPdfModal.classList.add('hidden');
+  toast('Building PDF...');
+  try {
+    const html = await buildDiaryPdfHtml(from, to);
+    const filename = days === 1
+      ? `crumbtracker-${from}.pdf`
+      : `crumbtracker-${from}-to-${to}.pdf`;
+    const res = await window.ct.exportDiaryPdf({ html, defaultFilename: filename });
+    if (res && res.ok) toast('Saved: ' + res.path, 4000);
+    else if (res && res.canceled) { /* silent */ }
+    else toast('PDF export failed: ' + ((res && res.error) || 'unknown error'), 5000);
+  } catch (err) {
+    toast('PDF export failed: ' + (err.message || err), 5000);
+  }
+});
+
+// Build a self-contained HTML document representing the diary for a date range.
+// Inlines its own light-theme stylesheet — independent of the app's CSS so the
+// PDF reads well on paper regardless of how the app looks on screen.
+async function buildDiaryPdfHtml(fromIso, toIso) {
+  const days = daysBetween(fromIso, toIso);
+  const dates = [];
+  for (let i = 0; i < days; i++) {
+    const d = new Date(fromIso + 'T00:00:00');
+    d.setDate(d.getDate() + i);
+    dates.push(isoDate(d));
+  }
+
+  const t = state.targets || {};
+  const hasTargets = !!state.targetsSaved;
+  const targetKcal = hasTargets ? (t.calories || 0) : 0;
+
+  const dayBlocks = [];
+  for (const date of dates) {
+    const entries = await CT.db.listEntriesForDate(date);
+    const exercises = await CT.db.listExercisesForDate(date);
+    const note = await CT.db.getNote(date);
+    const totals = entries.reduce((acc, e) => {
+      acc.calories += e.calories || 0;
+      acc.protein  += e.protein  || 0;
+      acc.carbs    += e.carbs    || 0;
+      acc.fat      += e.fat      || 0;
+      return acc;
+    }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+    const burned = exercises.reduce((s, e) => s + (e.calories || 0), 0);
+
+    // Skip completely empty days (no food, no exercise, no note) unless this
+    // is a single-day export (user wants proof of "nothing logged").
+    if (days > 1 && !entries.length && !exercises.length && !(note && note.trim())) continue;
+
+    const byMeal = {};
+    MEALS.forEach(m => byMeal[m.key] = []);
+    entries.forEach(e => { (byMeal[e.meal] || (byMeal[e.meal] = [])).push(e); });
+
+    const mealBlocks = MEALS.map(({ key, label }) => {
+      const list = byMeal[key] || [];
+      if (!list.length) return '';
+      const mealKcal = list.reduce((s, e) => s + (e.calories || 0), 0);
+      const rows = list.map(e => `
+        <tr>
+          <td class="name">${escapeHtml(e.name)}${e.brand ? ` <span class="brand">(${escapeHtml(e.brand)})</span>` : ''}</td>
+          <td class="amt">${r(e.servings * e.serving_size)} ${escapeHtml(e.serving_unit)}</td>
+          <td class="num">${r(e.calories)}</td>
+          <td class="num">${r(e.protein)}</td>
+          <td class="num">${r(e.carbs)}</td>
+          <td class="num">${r(e.fat)}</td>
+        </tr>`).join('');
+      return `
+        <div class="meal-block">
+          <div class="meal-head"><b>${label}</b> <span class="meal-kcal">${r(mealKcal)} kcal</span></div>
+          <table>
+            <thead><tr><th>Food</th><th>Amount</th><th>kcal</th><th>P (g)</th><th>C (g)</th><th>F (g)</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+    }).join('');
+
+    const exerciseBlock = exercises.length ? `
+      <div class="meal-block">
+        <div class="meal-head"><b>Exercise</b> <span class="meal-kcal">${r(burned)} kcal burned</span></div>
+        <table>
+          <thead><tr><th>Activity</th><th>Duration</th><th>kcal</th></tr></thead>
+          <tbody>
+            ${exercises.map(e => `<tr>
+              <td class="name">${escapeHtml(e.name)}</td>
+              <td class="amt">${e.duration_min ? r(e.duration_min) + ' min' : ''}</td>
+              <td class="num">${r(e.calories)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>` : '';
+
+    const noteBlock = (note && note.trim()) ? `
+      <div class="meal-block notes-block">
+        <div class="meal-head"><b>Notes</b></div>
+        <div class="note-text">${escapeHtml(note).replace(/\n/g, '<br>')}</div>
+      </div>` : '';
+
+    const dateObj = new Date(date + 'T00:00:00');
+    const dateLabel = dateObj.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+    const totalsRow = `
+      <div class="day-totals">
+        <span><b>${r(totals.calories)}</b> kcal${targetKcal ? ` / ${r(targetKcal)} goal` : ''}</span>
+        <span>P <b>${r(totals.protein)}</b>g${hasTargets ? ` / ${r(t.protein)}g` : ''}</span>
+        <span>C <b>${r(totals.carbs)}</b>g${hasTargets ? ` / ${r(t.carbs)}g` : ''}</span>
+        <span>F <b>${r(totals.fat)}</b>g${hasTargets ? ` / ${r(t.fat)}g` : ''}</span>
+        ${burned > 0 ? `<span class="burned">− ${r(burned)} kcal exercise</span>` : ''}
+      </div>`;
+
+    dayBlocks.push(`
+      <section class="day">
+        <h2>${escapeHtml(dateLabel)}</h2>
+        ${totalsRow}
+        ${mealBlocks || '<div class="empty">No food logged.</div>'}
+        ${exerciseBlock}
+        ${noteBlock}
+      </section>
+    `);
+  }
+
+  const content = dayBlocks.length
+    ? dayBlocks.join('')
+    : '<section class="day"><div class="empty">No entries in the selected range.</div></section>';
+
+  const generatedAt = new Date().toLocaleString();
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>CrumbTracker diary ${escapeHtml(fromIso)} to ${escapeHtml(toIso)}</title>
+<style>
+  @page { margin: 0.5in; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #1a1a1a; background: #fff; margin: 0; padding: 0; font-size: 11pt; line-height: 1.4; }
+  .doc-head { border-bottom: 2px solid #333; padding-bottom: 8px; margin-bottom: 14px; }
+  .doc-head h1 { margin: 0; font-size: 16pt; }
+  .doc-head .sub { color: #666; font-size: 9pt; margin-top: 2px; }
+  .day { page-break-inside: avoid; margin-bottom: 22px; padding-bottom: 14px; border-bottom: 1px dashed #bbb; }
+  .day:last-child { border-bottom: none; }
+  .day + .day { page-break-before: auto; }
+  .day h2 { font-size: 13pt; margin: 0 0 6px; color: #222; }
+  .day-totals { background: #f2f4f7; border: 1px solid #d8dde4; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; font-size: 10pt; display: flex; gap: 16px; flex-wrap: wrap; }
+  .day-totals b { color: #111; }
+  .day-totals .burned { color: #888; }
+  .meal-block { margin: 0 0 10px; }
+  .meal-head { font-size: 10pt; margin-bottom: 4px; color: #333; display: flex; justify-content: space-between; border-bottom: 1px solid #ddd; padding-bottom: 2px; }
+  .meal-kcal { color: #666; font-size: 9pt; }
+  table { border-collapse: collapse; width: 100%; font-size: 9.5pt; }
+  th, td { padding: 3px 6px; text-align: left; }
+  th { color: #666; font-weight: 600; border-bottom: 1px solid #ccc; font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.4px; }
+  td.name { width: 45%; }
+  td.brand { color: #888; font-size: 9pt; }
+  td.amt { color: #444; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; width: 50px; }
+  th:nth-child(n+3), td.num { text-align: right; }
+  .notes-block .note-text { font-size: 10pt; color: #333; white-space: pre-wrap; background: #fafaf7; border: 1px solid #eee; border-radius: 4px; padding: 8px 10px; }
+  .empty { color: #888; font-style: italic; font-size: 10pt; padding: 6px 0; }
+  .brand { color: #888; font-weight: normal; font-size: 9pt; }
+</style>
+</head><body>
+<div class="doc-head">
+  <h1>CrumbTracker diary</h1>
+  <div class="sub">${escapeHtml(fromIso)} to ${escapeHtml(toIso)} · generated ${escapeHtml(generatedAt)}</div>
+</div>
+${content}
+</body></html>`;
+}
+
+// ------- COPY MEAL FROM ANOTHER DAY -------
+const copyMealModal = document.getElementById('copy-meal-modal');
+const copyMealForm = document.getElementById('copy-meal-form');
+let _copyMealTargetSection = null;
+
+copyMealModal.addEventListener('click', (e) => {
+  if (e.target.dataset.close !== undefined || e.target === copyMealModal) copyMealModal.classList.add('hidden');
+});
+
+function openCopyMealModal(targetSection) {
+  _copyMealTargetSection = targetSection;
+  const label = (MEALS.find(m => m.key === targetSection) || { label: targetSection }).label;
+  $('#copy-meal-title').textContent = `Copy into ${label}`;
+
+  // Sensible default: yesterday, same section.
+  const d = new Date(state.date + 'T00:00:00');
+  d.setDate(d.getDate() - 1);
+  $('#copy-meal-date').value = isoDate(d);
+
+  const sel = $('#copy-meal-source');
+  sel.innerHTML = MEALS.map(m =>
+    `<option value="${m.key}" ${m.key === targetSection ? 'selected' : ''}>${m.label}</option>`
+  ).join('');
+
+  // Quick-pick shortcuts.
+  $('#copy-meal-shortcuts').innerHTML = `
+    <button type="button" class="ghost-btn small" data-days="1">Yesterday</button>
+    <button type="button" class="ghost-btn small" data-days="2">2 days ago</button>
+    <button type="button" class="ghost-btn small" data-days="7">Last week</button>
+  `;
+  $$('#copy-meal-shortcuts [data-days]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const n = Number(btn.dataset.days);
+      const dd = new Date(state.date + 'T00:00:00');
+      dd.setDate(dd.getDate() - n);
+      $('#copy-meal-date').value = isoDate(dd);
+      renderCopyMealPreview();
+    });
+  });
+
+  $('#copy-meal-date').addEventListener('input', renderCopyMealPreview);
+  sel.addEventListener('change', renderCopyMealPreview);
+
+  renderCopyMealPreview();
+  copyMealModal.classList.remove('hidden');
+}
+
+async function renderCopyMealPreview() {
+  const date = $('#copy-meal-date').value;
+  const section = $('#copy-meal-source').value;
+  const el = $('#copy-meal-preview');
+  if (!date || !section) { el.innerHTML = ''; return; }
+  const entries = await CT.db.listEntriesForDate(date);
+  const matching = entries.filter(e => e.meal === section);
+  if (!matching.length) {
+    el.innerHTML = `<div class="empty" style="padding:8px">Nothing logged for that date and section.</div>`;
+    return;
+  }
+  const totalCal = matching.reduce((s, e) => s + (e.calories || 0), 0);
+  el.innerHTML = `
+    <div class="copy-meal-count">${matching.length} ${matching.length === 1 ? 'entry' : 'entries'} · ${r(totalCal)} kcal</div>
+    <ul class="copy-meal-list">
+      ${matching.map(e => `<li>${escapeHtml(e.name)} <span class="muted">· ${r(e.calories)} kcal</span></li>`).join('')}
+    </ul>
+  `;
+}
+
+copyMealForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const date = $('#copy-meal-date').value;
+  const section = $('#copy-meal-source').value;
+  if (!date || !section) return;
+  const entries = await CT.db.listEntriesForDate(date);
+  const matching = entries.filter(en => en.meal === section);
+  if (!matching.length) { toast('Nothing to copy from that day.'); return; }
+  for (const src of matching) {
+    await CT.db.addEntry({
+      date: state.date,
+      meal: _copyMealTargetSection,
+      food_id: src.food_id,
+      name: src.name,
+      brand: src.brand,
+      servings: src.servings,
+      serving_size: src.serving_size,
+      serving_unit: src.serving_unit,
+      calories: src.calories,
+      protein:  src.protein,
+      carbs:    src.carbs,
+      fat:      src.fat
+    });
+  }
+  copyMealModal.classList.add('hidden');
+  toast(`Copied ${matching.length} ${matching.length === 1 ? 'entry' : 'entries'}`);
+  renderDiary();
+});
 
 $('#date-prev').addEventListener('click', () => shiftDate(-1));
 $('#date-next').addEventListener('click', () => shiftDate(1));
@@ -625,11 +990,15 @@ function servingHint(food) {
   return `One serving: ${sz}`;
 }
 
-function openAddModal(food) {
+function openAddModal(food, editingEntry = null) {
   const unit = food.serving_unit || 'g';
-  const defaultAmount = food.last_amount > 0 ? food.last_amount : food.serving_size;
-  const usedLast = food.last_amount > 0 && food.last_amount !== food.serving_size;
+  const defaultAmount = editingEntry
+    ? (Number(editingEntry.servings) || 0) * (food.serving_size || 1)
+    : (food.last_amount > 0 ? food.last_amount : food.serving_size);
+  const usedLast = !editingEntry && food.last_amount > 0 && food.last_amount !== food.serving_size;
   const needsNutrition = !food.calories;
+  const defaultMeal = editingEntry ? editingEntry.meal : state.meal;
+  const defaultDate = editingEntry ? editingEntry.date : state.date;
 
   // Working copy — user edits to nutrition label mutate this, not `food`.
   const live = {
@@ -641,7 +1010,7 @@ function openAddModal(food) {
     image:    food.image || ''
   };
 
-  $('#add-title').textContent = 'Add food';
+  $('#add-title').textContent = editingEntry ? 'Edit entry' : 'Add food';
   addBody.innerHTML = `
     <div class="add-food">
       <div class="add-food-thumb" id="add-food-thumb" title="Click to change image.">
@@ -659,13 +1028,13 @@ function openAddModal(food) {
     <form class="add-form" id="add-form">
       <label>Meal
         <select name="meal">
-          ${MEALS.map(m => `<option value="${m.key}" ${m.key === state.meal ? 'selected' : ''}>${m.label}</option>`).join('')}
+          ${MEALS.map(m => `<option value="${m.key}" ${m.key === defaultMeal ? 'selected' : ''}>${m.label}</option>`).join('')}
         </select>
       </label>
       <label>Amount (${escapeHtml(unit)})
         <input type="number" step="0.1" min="0" name="amount" value="${defaultAmount}" autofocus />
       </label>
-      <label>Date <input type="date" name="date" value="${state.date}" /></label>
+      <label>Date <input type="date" name="date" value="${defaultDate}" /></label>
       <label>Servings (calc)
         <input type="number" step="0.01" min="0" name="servings" value="1" />
       </label>
@@ -689,7 +1058,7 @@ function openAddModal(food) {
       </label>`}
       <div class="actions">
         <button type="button" class="ghost-btn" data-close>Cancel</button>
-        <button type="submit" class="primary-btn">Add to diary</button>
+        <button type="submit" class="primary-btn">${editingEntry ? 'Save entry' : 'Add to diary'}</button>
       </div>
     </form>
   `;
@@ -837,6 +1206,12 @@ function openAddModal(food) {
       });
     }
 
+    // When editing, replace the original entry: remove it before creating the
+    // new one so we don't double-count.
+    if (editingEntry) {
+      await CT.db.deleteEntry(editingEntry.id);
+    }
+
     await CT.db.addEntry({
       date: fd.get('date'),
       meal: fd.get('meal'),
@@ -856,7 +1231,7 @@ function openAddModal(food) {
     addModal.classList.add('hidden');
     state.date = fd.get('date');
     state.meal = fd.get('meal');
-    toast('Added to ' + fd.get('meal'));
+    toast(editingEntry ? 'Entry updated' : ('Added to ' + fd.get('meal')));
     renderDiary();
     $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === 'diary'));
     $$('.view').forEach(v => v.classList.add('hidden'));
@@ -981,9 +1356,19 @@ async function renderCustomFoods() {
   const foods = await CT.db.listFoods({ source: 'custom' });
   const el = $('#custom-results');
   if (!foods.length) { el.innerHTML = `<div class="empty">No custom foods yet. Click "+ Custom food" to add one.</div>`; return true; }
-  renderResults(el, foods, { showAdd: true, showDelete: true });
+  const filter = ($('#custom-filter').value || '').trim().toLowerCase();
+  const filtered = filter
+    ? foods.filter(f => (f.name || '').toLowerCase().includes(filter) || (f.brand || '').toLowerCase().includes(filter))
+    : foods;
+  if (!filtered.length) {
+    el.innerHTML = `<div class="empty">No matches for "${escapeHtml(filter)}".</div>`;
+    return true;
+  }
+  renderResults(el, filtered, { showAdd: true, showDelete: true });
   return true;
 }
+
+$('#custom-filter').addEventListener('input', () => renderCustomFoods());
 
 async function renderRecentFoods() {
   const entries = await CT.db.recentEntries(30);
@@ -1722,6 +2107,43 @@ function initBody() {
     });
   });
 }
+
+$('#btn-export').addEventListener('click', async () => {
+  try {
+    const payload = await CT.db.exportAll();
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    a.href = url;
+    a.download = `crumbtracker-backup-${ts}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    toast('Exported.');
+  } catch (e) {
+    toast('Export failed: ' + (e.message || e), 5000);
+  }
+});
+
+$('#btn-import').addEventListener('click', () => $('#import-file').click());
+
+$('#import-file').addEventListener('change', async () => {
+  const file = $('#import-file').files[0];
+  $('#import-file').value = '';
+  if (!file) return;
+  if (!confirm(`Import "${file.name}"? This will REPLACE all current diary entries, custom foods, meals, and settings. Export your current data first if you want a backup.`)) return;
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    await CT.db.importAll(payload);
+    toast('Imported. Reloading...');
+    setTimeout(() => location.reload(), 600);
+  } catch (e) {
+    toast('Import failed: ' + (e.message || e), 6000);
+  }
+});
 
 $('#btn-wipe').addEventListener('click', async () => {
   if (!confirm('This will permanently erase all diary entries, custom foods, cached lookups, and saved targets. Continue?')) return;

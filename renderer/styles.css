@@ -700,7 +700,8 @@ body { display: flex; }
 .entry .name .sub { color: var(--muted); font-size: 12px; }
 .entry .macro { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .entry .kcal { font-weight: 600; width: 70px; text-align: right; }
-.entry .del {
+.entry .del,
+.entry .edit {
   background: transparent;
   color: var(--muted);
   border: none;
@@ -709,6 +710,7 @@ body { display: flex; }
   border-radius: 6px;
 }
 .entry .del:hover { color: var(--danger); background: var(--bg-3); }
+.entry .edit:hover { color: var(--accent); background: var(--bg-3); }
 
 .empty {
   color: var(--muted);
@@ -748,6 +750,17 @@ body { display: flex; }
   border: 1px solid var(--line);
   padding: 9px 12px;
   border-radius: var(--radius);
+}
+
+.custom-filter-row { margin-bottom: 10px; }
+.custom-filter-row input {
+  width: 100%;
+  background: var(--bg-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
 }
 
 .results {
@@ -811,6 +824,26 @@ body { display: flex; }
 .settings-form button { grid-column: 1 / -1; justify-self: start; }
 .settings-form .macro-note { grid-column: 1 / -1; line-height: 1.45; }
 .settings-note { margin-top: 14px; color: var(--muted); font-size: 12px; }
+.settings-subnote { color: var(--muted); font-size: 12px; margin: 0 0 10px; }
+.backup-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.copy-meal-shortcuts { display: flex; gap: 6px; flex-wrap: wrap; }
+.copy-meal-preview {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 12px;
+  min-height: 36px;
+}
+.copy-meal-count { color: var(--text); font-weight: 600; margin-bottom: 4px; }
+.copy-meal-list { margin: 0; padding-left: 18px; }
+.copy-meal-list li { line-height: 1.5; }
+
+.export-pdf-shortcuts { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+.export-pdf-info { color: var(--muted); font-size: 12px; padding: 6px 0; }
+.export-pdf-info.error { color: var(--danger); }
 
 .settings-section { margin-bottom: 18px; }
 .settings-section h3 {

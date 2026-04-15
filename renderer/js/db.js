@@ -368,5 +368,49 @@ CT.db = {
       const t = d.transaction(name, 'readwrite');
       await reqToPromise(t.objectStore(name).clear());
     }
+  },
+
+  // Export every object store as a plain JSON-serialisable blob.
+  async exportAll() {
+    const stores = ['foods', 'entries', 'settings', 'notes', 'weights', 'exercise', 'meals'];
+    const out = {
+      app: 'crumbtracker',
+      schema_version: DB_VERSION,
+      exported_at: new Date().toISOString(),
+      data: {}
+    };
+    for (const name of stores) {
+      const store = await tx(name);
+      out.data[name] = await new Promise((resolve, reject) => {
+        const results = [];
+        const req = store.openCursor();
+        req.onsuccess = () => {
+          const cur = req.result;
+          if (!cur) { resolve(results); return; }
+          results.push(cur.value);
+          cur.continue();
+        };
+        req.onerror = () => reject(req.error);
+      });
+    }
+    return out;
+  },
+
+  // Replace every store with contents from a previous exportAll() payload.
+  // Throws if the payload doesn't look right; only wipes after validation.
+  async importAll(payload) {
+    if (!payload || payload.app !== 'crumbtracker' || !payload.data || typeof payload.data !== 'object') {
+      throw new Error('Not a CrumbTracker export file.');
+    }
+    const stores = ['foods', 'entries', 'settings', 'notes', 'weights', 'exercise', 'meals'];
+    await this.wipeAll();
+    for (const name of stores) {
+      const rows = Array.isArray(payload.data[name]) ? payload.data[name] : [];
+      if (!rows.length) continue;
+      const store = await tx(name, 'readwrite');
+      for (const row of rows) {
+        await reqToPromise(store.put(row));
+      }
+    }
   }
 };
