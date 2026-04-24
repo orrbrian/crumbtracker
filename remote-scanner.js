@@ -21,6 +21,12 @@ const ZXING_PATH = path.join(__dirname, 'renderer', 'vendor', 'zxing-browser.min
 
 let activeSession = null;
 
+// Barcode charset — covers UPC/EAN/Code 128/Code 39/ITF in practice. Rejecting
+// anything else (including QR payloads) prevents a compromised phone from
+// injecting arbitrary strings, and gives defense-in-depth if a future renderer
+// change ever drops an escapeHtml() on the way to a DOM sink.
+const CODE_RE = /^[A-Za-z0-9\-._]{1,64}$/;
+
 // Windows often has virtual adapters (VMware, Hyper-V, Docker, VPN) whose
 // addresses the phone can't reach. Filter by interface name.
 const VIRTUAL_IFACE_PATTERNS = [
@@ -94,7 +100,16 @@ async function start({ onCode, onError, timeoutMs = 10 * 60 * 1000 }) {
   const ips = lanAddresses();
   const { key, cert } = await makeCert(ips);
 
+  // Populated after listen() — checked per-request to block DNS-rebinding,
+  // where an attacker-controlled DNS name resolves to the user's LAN IP.
+  // Requests without a matching Host header get rejected even before the
+  // token check.
+  let allowedHosts = null;
+
   const server = https.createServer({ key, cert }, (req, res) => {
+    if (allowedHosts && !allowedHosts.has(String(req.headers.host || '').toLowerCase())) {
+      res.writeHead(403); res.end('forbidden'); return;
+    }
     // Every route is under /<token>/... — mismatch → 404.
     const prefix = `/${token}/`;
     if (!req.url.startsWith(prefix) && req.url !== `/${token}`) {
@@ -128,7 +143,7 @@ async function start({ onCode, onError, timeoutMs = 10 * 60 * 1000 }) {
       req.on('end', () => {
         try {
           const { code } = JSON.parse(body || '{}');
-          if (typeof code === 'string' && code.length > 0 && code.length <= 64) {
+          if (typeof code === 'string' && CODE_RE.test(code)) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true }));
             try { onCode && onCode(code); } catch (e) { console.error('onCode handler threw', e); }
@@ -152,6 +167,14 @@ async function start({ onCode, onError, timeoutMs = 10 * 60 * 1000 }) {
     server.listen(0, '0.0.0.0', () => {
       const port = server.address().port;
       const urls = ips.map(ip => `https://${ip}:${port}/${token}`);
+      // IPv6 Host header arrives bracketed (e.g. "[::1]:12345"); we only bind
+      // the v4 IPs enumerated above, plus localhost/127.0.0.1 for any
+      // same-host debugging from the desktop.
+      allowedHosts = new Set([
+        ...ips.map(ip => `${ip}:${port}`),
+        `localhost:${port}`,
+        `127.0.0.1:${port}`
+      ].map(s => s.toLowerCase()));
       const timer = setTimeout(() => stop('timeout'), timeoutMs);
       activeSession = { server, token, urls, timer };
       resolve({ url: urls[0], urls, token });
