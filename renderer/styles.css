@@ -1462,6 +1462,16 @@ body { display: flex; }
   padding: 8px 10px;
   border-radius: var(--radius);
 }
+.add-form .amount-row { display: flex; gap: 6px; align-items: stretch; }
+.add-form .amount-row input { flex: 1; min-width: 0; }
+.add-form .amount-row select { flex: 0 0 auto; }
+.add-form .amount-unit-static {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
 .add-form .serving-hint {
   grid-column: 1 / -1;
   color: var(--muted);

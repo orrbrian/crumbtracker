@@ -1056,8 +1056,28 @@ function servingHint(food) {
   return `One serving: ${sz}`;
 }
 
+// ml<->mass uses the water-density approximation (1 ml ~ 1 g) - standard
+// convention in macro trackers when a food's label is in grams but the user
+// wants to enter a volume (or vice versa).
+const UNIT_TO_G = { g: 1, ml: 1, oz: 28.3495231, lb: 453.59237 };
+const UNIT_LABELS = { g: 'g', ml: 'ml', oz: 'oz', lb: 'lbs' };
+
 function openAddModal(food, editingEntry = null) {
   const unit = food.serving_unit || 'g';
+  const nativeUnit = unit.toLowerCase().trim();
+  const convertible = nativeUnit === 'g' || nativeUnit === 'ml';
+  const unitOptions = convertible
+    ? [nativeUnit, ...['g', 'ml', 'oz', 'lb'].filter(u => u !== nativeUnit)]
+    : null;
+  const toNative = (val, fromUnit) => val * UNIT_TO_G[fromUnit] / UNIT_TO_G[nativeUnit];
+  const fromNative = (val, toUnit) => val * UNIT_TO_G[nativeUnit] / UNIT_TO_G[toUnit];
+  const decimalsFor = (u) => u === 'lb' ? 3 : (u === 'oz' ? 2 : 1);
+  const formatDisplay = (val, u) => {
+    const k = Math.pow(10, decimalsFor(u));
+    return Math.round((Number(val) || 0) * k) / k;
+  };
+  let displayUnit = nativeUnit;
+
   const defaultAmount = editingEntry
     ? (Number(editingEntry.servings) || 0) * (food.serving_size || 1)
     : (food.last_amount > 0 ? food.last_amount : food.serving_size);
@@ -1097,8 +1117,13 @@ function openAddModal(food, editingEntry = null) {
           ${MEALS.map(m => `<option value="${m.key}" ${m.key === defaultMeal ? 'selected' : ''}>${m.label}</option>`).join('')}
         </select>
       </label>
-      <label>Amount (${escapeHtml(unit)})
-        <input type="number" step="0.1" min="0" name="amount" value="${defaultAmount}" autofocus />
+      <label>Amount
+        <div class="amount-row">
+          <input type="number" step="0.01" min="0" name="amount" value="${defaultAmount}" autofocus />
+          ${unitOptions
+            ? `<select name="amount_unit" title="Switch units - amount is auto-converted.">${unitOptions.map(u => `<option value="${u}"${u === displayUnit ? ' selected' : ''}>${UNIT_LABELS[u]}</option>`).join('')}</select>`
+            : `<span class="amount-unit-static">${escapeHtml(unit)}</span>`}
+        </div>
       </label>
       <label>Date <input type="date" name="date" value="${defaultDate}" /></label>
       <label>Servings (calc)
@@ -1142,9 +1167,10 @@ function openAddModal(food, editingEntry = null) {
     if (lastEdited === 'servings') {
       servings = Number(servingsInput.value) || 0;
       amount = servings * size;
-      amountInput.value = r(amount);
+      amountInput.value = formatDisplay(fromNative(amount, displayUnit), displayUnit);
     } else {
-      amount = Number(amountInput.value) || 0;
+      const displayAmount = Number(amountInput.value) || 0;
+      amount = toNative(displayAmount, displayUnit);
       servings = amount / size;
       servingsInput.value = r(servings);
     }
@@ -1163,6 +1189,20 @@ function openAddModal(food, editingEntry = null) {
   servingsInput.addEventListener('input', () => { lastEdited = 'servings'; update(); });
   form.meal.addEventListener('change', update);
   form.date.addEventListener('change', update);
+
+  if (unitOptions) {
+    form.amount_unit.addEventListener('change', () => {
+      const oldUnit = displayUnit;
+      const newUnit = form.amount_unit.value;
+      // Reinterpret current amount as the prior unit, convert to the new one.
+      const currentDisplay = Number(amountInput.value) || 0;
+      const inGrams = currentDisplay * UNIT_TO_G[oldUnit];
+      displayUnit = newUnit;
+      amountInput.value = formatDisplay(inGrams / UNIT_TO_G[newUnit], newUnit);
+      lastEdited = 'amount';
+      update();
+    });
+  }
 
   $('#toggle-nutri').addEventListener('click', () => {
     nutriEdit.classList.toggle('hidden');
@@ -1242,7 +1282,8 @@ function openAddModal(food, editingEntry = null) {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(form);
-    const amount = Number(fd.get('amount')) || 0;
+    const displayAmount = Number(fd.get('amount')) || 0;
+    const amount = toNative(displayAmount, displayUnit);
     const size = live.serving_size > 0 ? live.serving_size : 1;
     const servings = amount / size;
 
