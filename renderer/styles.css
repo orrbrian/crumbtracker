@@ -1477,7 +1477,12 @@ body { display: flex; }
   color: var(--muted);
   font-size: 12px;
   margin-top: -2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
+.add-form .serving-hint #serving-hint-text { flex: 1; min-width: 0; }
 .add-form .preview {
   grid-column: 1 / -1;
   background: var(--bg-3);

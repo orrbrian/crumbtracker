@@ -366,7 +366,7 @@ function renderMeals(entries) {
           <div class="entry" data-id="${e.id}">
             <div class="name">
               <div class="n">${escapeHtml(e.name)}</div>
-              <div class="sub">${escapeHtml(e.brand || '')}${e.brand ? ' · ' : ''}${r(e.servings * e.serving_size)} ${escapeHtml(e.serving_unit)}</div>
+              <div class="sub">${escapeHtml(e.brand || '')}${e.brand ? ' · ' : ''}${formatEntryAmount(e)}</div>
             </div>
             <div class="macro">${formatMacros(e)}</div>
             <div class="kcal">${r(e.calories)} kcal</div>
@@ -564,7 +564,7 @@ async function buildDiaryPdfHtml(fromIso, toIso) {
       const rows = list.map(e => `
         <tr>
           <td class="name">${escapeHtml(e.name)}${e.brand ? ` <span class="brand">(${escapeHtml(e.brand)})</span>` : ''}</td>
-          <td class="amt">${r(e.servings * e.serving_size)} ${escapeHtml(e.serving_unit)}</td>
+          <td class="amt">${formatEntryAmount(e)}</td>
           <td class="num">${r(e.calories)}</td>
           <td class="num">${r(e.protein)}</td>
           <td class="num">${r(e.carbs)}</td>
@@ -846,7 +846,7 @@ function renderResults(container, foods, { showAdd = true, showDelete = false, s
       ${f.image ? `<img src="${f.image}" alt="">` : `<div style="width:44px;height:44px;border-radius:6px;background:var(--bg-3)"></div>`}
       <div class="info">
         <div class="n">${escapeHtml(f.name)} ${f._exact ? '<span class="badge" title="Found by exact barcode lookup.">exact match</span>' : ''}</div>
-        <div class="sub">${escapeHtml(f.brand || '')}${f.brand ? ' · ' : ''}${r(f.calories)} kcal / ${r(f.serving_size)} ${escapeHtml(f.serving_unit)}${f.serving_source && f.serving_source !== 'product' && f.serving_source !== 'custom' ? ' <em class="est" title="Serving size was inferred from the product category, not a label. Double-check before logging.">(est.)</em>' : ''}${f.barcode ? ' · ' + escapeHtml(f.barcode) : ''}</div>
+        <div class="sub">${escapeHtml(f.brand || '')}${f.brand ? ' · ' : ''}${r(f.calories)} kcal / ${formatFoodServing(f)}${f.serving_source && f.serving_source !== 'product' && f.serving_source !== 'custom' ? ' <em class="est" title="Serving size was inferred from the product category, not a label. Double-check before logging.">(est.)</em>' : ''}${f.barcode ? ' · ' + escapeHtml(f.barcode) : ''}</div>
         ${showSource ? renderFoodSourceBadge(f) : ''}
       </div>
       <div class="actions"></div>
@@ -1056,39 +1056,134 @@ function servingHint(food) {
   return `One serving: ${sz}`;
 }
 
-// ml<->mass uses the water-density approximation (1 ml ~ 1 g) - standard
-// convention in macro trackers when a food's label is in grams but the user
-// wants to enter a volume (or vice versa).
-const UNIT_TO_G = { g: 1, ml: 1, oz: 28.3495231, lb: 453.59237 };
-const UNIT_LABELS = { g: 'g', ml: 'ml', oz: 'oz', lb: 'lbs' };
+// Unit conversions for the Add-food amount dropdown.
+//
+// Mass and Volume are exact within their own group. Cross-group conversion
+// (only used when we don't know whether a food is solid or liquid) falls back
+// to the water-density approximation: 1 ml ~ 1 g. Volume factors are US
+// customary (tsp/tbsp/fl oz/cup/pt/qt/gal).
+const MASS_UNITS = {
+  g:  { label: 'g',   toG: 1 },
+  oz: { label: 'oz',  toG: 28.3495231 },
+  lb: { label: 'lbs', toG: 453.59237 }
+};
+const VOLUME_UNITS = {
+  ml:   { label: 'ml',     toMl: 1 },
+  tsp:  { label: 'tsp',    toMl: 4.92892159 },
+  tbsp: { label: 'tbsp',   toMl: 14.78676478 },
+  floz: { label: 'fl oz',  toMl: 29.57352956 },
+  cup:  { label: 'cup',    toMl: 236.5882365 },
+  pt:   { label: 'pint',   toMl: 473.176473 },
+  qt:   { label: 'quart',  toMl: 946.352946 },
+  gal:  { label: 'gallon', toMl: 3785.411784 }
+};
+const MASS_KEYS   = ['g', 'oz', 'lb'];
+const VOLUME_KEYS = ['ml', 'tsp', 'tbsp', 'floz', 'cup', 'pt', 'qt', 'gal'];
+
+function unitToGrams(u) {
+  if (MASS_UNITS[u])   return MASS_UNITS[u].toG;
+  if (VOLUME_UNITS[u]) return VOLUME_UNITS[u].toMl; // 1 ml ~ 1 g
+  return null;
+}
+
+function unitLabel(u) {
+  return (MASS_UNITS[u] || VOLUME_UNITS[u] || { label: u }).label;
+}
+
+function unitDecimals(u) {
+  if (u === 'g' || u === 'ml') return 1;
+  if (u === 'oz' || u === 'floz' || u === 'tsp' || u === 'tbsp') return 2;
+  if (u === 'gal') return 4;
+  return 3; // lb, cup, pt, qt
+}
+
+// Display an entry's amount using the unit the user entered when known;
+// older entries without entry_amount/entry_unit fall back to the food's
+// native serving unit.
+function formatEntryAmount(e) {
+  if (e.entry_amount != null && e.entry_unit) {
+    const k = Math.pow(10, unitDecimals(e.entry_unit));
+    const val = Math.round((Number(e.entry_amount) || 0) * k) / k;
+    return `${val} ${unitLabel(e.entry_unit)}`;
+  }
+  return `${r(e.servings * e.serving_size)} ${e.serving_unit || 'g'}`;
+}
+
+// Display a food's per-serving size in the user's last-used unit if any,
+// otherwise in the food's native unit.
+function formatFoodServing(f) {
+  const native = (f.serving_unit || 'g').toLowerCase().trim();
+  const size = Number(f.serving_size) || 0;
+  if (f.last_unit && unitToGrams(f.last_unit) != null && unitToGrams(native) != null) {
+    const k = Math.pow(10, unitDecimals(f.last_unit));
+    const val = Math.round((size * unitToGrams(native) / unitToGrams(f.last_unit)) * k) / k;
+    return `${val} ${unitLabel(f.last_unit)}`;
+  }
+  return `${r(size)} ${escapeHtml(f.serving_unit || 'g')}`;
+}
 
 function openAddModal(food, editingEntry = null) {
   const unit = food.serving_unit || 'g';
   const nativeUnit = unit.toLowerCase().trim();
-  const convertible = nativeUnit === 'g' || nativeUnit === 'ml';
-  const unitOptions = convertible
-    ? [nativeUnit, ...['g', 'ml', 'oz', 'lb'].filter(u => u !== nativeUnit)]
-    : null;
-  const toNative = (val, fromUnit) => val * UNIT_TO_G[fromUnit] / UNIT_TO_G[nativeUnit];
-  const fromNative = (val, toUnit) => val * UNIT_TO_G[nativeUnit] / UNIT_TO_G[toUnit];
-  const decimalsFor = (u) => u === 'lb' ? 3 : (u === 'oz' ? 2 : 1);
+  const inMass   = MASS_KEYS.includes(nativeUnit);
+  const inVolume = VOLUME_KEYS.includes(nativeUnit);
+  // 'default' means we never had a real signal for the unit, so we don't
+  // restrict the user to one category. Everything else (product/category/
+  // custom) is trusted enough to filter to the matching group.
+  const trusted = food.serving_source && food.serving_source !== 'default';
+  let unitGroups = null; // [{ label, units }, ...] | null = no dropdown
+  if ((inMass || inVolume) && trusted) {
+    unitGroups = [{ label: null, units: inMass ? MASS_KEYS : VOLUME_KEYS }];
+  } else if (inMass || inVolume) {
+    unitGroups = [
+      { label: 'Mass',   units: MASS_KEYS },
+      { label: 'Volume', units: VOLUME_KEYS }
+    ];
+  }
+  const toNative   = (val, fromUnit) => val * unitToGrams(fromUnit) / unitToGrams(nativeUnit);
+  const fromNative = (val, toUnit)   => val * unitToGrams(nativeUnit) / unitToGrams(toUnit);
   const formatDisplay = (val, u) => {
-    const k = Math.pow(10, decimalsFor(u));
+    const k = Math.pow(10, unitDecimals(u));
     return Math.round((Number(val) || 0) * k) / k;
   };
+  // Pick the display unit and starting amount. When editing, prefer the unit
+  // the user originally typed for this entry. When re-adding a food from My
+  // Foods, prefer the unit the user last used for this food. Either way, the
+  // chosen unit must still fit the current unitGroups; otherwise fall back to
+  // the food's native unit.
+  const inGroups = (u) => !!(u && unitGroups && unitGroups.some(g => g.units.includes(u)));
   let displayUnit = nativeUnit;
-
-  const defaultAmount = editingEntry
-    ? (Number(editingEntry.servings) || 0) * (food.serving_size || 1)
-    : (food.last_amount > 0 ? food.last_amount : food.serving_size);
+  let defaultAmount;
+  if (editingEntry) {
+    if (inGroups(editingEntry.entry_unit) && editingEntry.entry_amount != null) {
+      displayUnit = editingEntry.entry_unit;
+      defaultAmount = editingEntry.entry_amount;
+    } else {
+      defaultAmount = (Number(editingEntry.servings) || 0) * (food.serving_size || 1);
+    }
+  } else {
+    const nativeAmount = food.last_amount > 0 ? food.last_amount : food.serving_size;
+    if (inGroups(food.last_unit)) {
+      displayUnit = food.last_unit;
+      const k = Math.pow(10, unitDecimals(displayUnit));
+      defaultAmount = Math.round(
+        (nativeAmount * unitToGrams(nativeUnit) / unitToGrams(displayUnit)) * k
+      ) / k;
+    } else {
+      defaultAmount = nativeAmount;
+    }
+  }
   const usedLast = !editingEntry && food.last_amount > 0 && food.last_amount !== food.serving_size;
   const needsNutrition = !food.calories;
   const defaultMeal = editingEntry ? editingEntry.meal : state.meal;
   const defaultDate = editingEntry ? editingEntry.date : state.date;
 
-  // Working copy — user edits to nutrition label mutate this, not `food`.
+  // Working copy. User edits to the nutrition label or "use as my serving"
+  // mutate this, not `food`; the changes are written back via saveFood when
+  // the form is submitted.
   const live = {
     serving_size: food.serving_size,
+    serving_unit: food.serving_unit || 'g',
     calories: food.calories || 0,
     protein:  food.protein || 0,
     carbs:    food.carbs || 0,
@@ -1106,7 +1201,7 @@ function openAddModal(food, editingEntry = null) {
       </div>
       <div class="info">
         <div class="n">${escapeHtml(food.name)}</div>
-        <div class="sub"><span id="sub-brand">${escapeHtml(food.brand || '')}${food.brand ? ' · ' : ''}</span><span id="sub-cal">${r(live.calories)}</span> kcal / <span id="sub-size">${r(live.serving_size)}</span> ${escapeHtml(unit)}</div>
+        <div class="sub"><span id="sub-brand">${escapeHtml(food.brand || '')}${food.brand ? ' · ' : ''}</span><span id="sub-cal">${r(live.calories)}</span> kcal / <span id="sub-size">${r(live.serving_size)}</span> <span id="sub-unit">${escapeHtml(live.serving_unit)}</span></div>
       </div>
       <button type="button" class="ghost-btn small" id="toggle-nutri">${needsNutrition ? '+ Add nutrition' : '✎ Edit nutrition'}</button>
       <input type="file" id="add-thumb-file" accept="image/*" style="display:none" />
@@ -1120,8 +1215,11 @@ function openAddModal(food, editingEntry = null) {
       <label>Amount
         <div class="amount-row">
           <input type="number" step="0.01" min="0" name="amount" value="${defaultAmount}" autofocus />
-          ${unitOptions
-            ? `<select name="amount_unit" title="Switch units - amount is auto-converted.">${unitOptions.map(u => `<option value="${u}"${u === displayUnit ? ' selected' : ''}>${UNIT_LABELS[u]}</option>`).join('')}</select>`
+          ${unitGroups
+            ? `<select name="amount_unit" title="Switch units - amount is auto-converted.">${unitGroups.map(g => {
+                const opts = g.units.map(u => `<option value="${u}"${u === displayUnit ? ' selected' : ''}>${unitLabel(u)}</option>`).join('');
+                return g.label ? `<optgroup label="${g.label}">${opts}</optgroup>` : opts;
+              }).join('')}</select>`
             : `<span class="amount-unit-static">${escapeHtml(unit)}</span>`}
         </div>
       </label>
@@ -1129,15 +1227,18 @@ function openAddModal(food, editingEntry = null) {
       <label>Servings (calc)
         <input type="number" step="0.01" min="0" name="servings" value="1" />
       </label>
-      <div class="serving-hint">${escapeHtml(servingHint(food))}${usedLast ? ' · prefilled from last time' : ''}</div>
+      <div class="serving-hint">
+        <span id="serving-hint-text">${escapeHtml(servingHint(food))}${usedLast ? ' · prefilled from last time' : ''}</span>
+        <button type="button" class="ghost-btn small" id="use-as-my-serving" hidden title="Make this amount the food's serving size and rescale macros so 1 serving equals what you typed.">Use as my serving</button>
+      </div>
       <div class="nutrition-edit ${needsNutrition ? '' : 'hidden'}" id="nutrition-edit">
         <div class="ne-head">Nutrition label — per serving</div>
         <div class="ne-grid">
-          <label>Serving (${escapeHtml(unit)}) <input name="e_serving_size" type="number" step="0.1" min="0.1" value="${live.serving_size}" /></label>
-          <label>Calories <input name="e_calories" type="number" step="0.1" min="0" value="${live.calories}" /></label>
-          <label>Protein g <input name="e_protein" type="number" step="0.1" min="0" value="${live.protein}" /></label>
-          <label>Carbs g <input name="e_carbs" type="number" step="0.1" min="0" value="${live.carbs}" /></label>
-          <label>Fat g <input name="e_fat" type="number" step="0.1" min="0" value="${live.fat}" /></label>
+          <label>Serving (<span class="ne-unit">${escapeHtml(live.serving_unit)}</span>) <input name="e_serving_size" type="number" step="any" min="0.1" value="${live.serving_size}" /></label>
+          <label>Calories <input name="e_calories" type="number" step="any" min="0" value="${live.calories}" /></label>
+          <label>Protein g <input name="e_protein" type="number" step="any" min="0" value="${live.protein}" /></label>
+          <label>Carbs g <input name="e_carbs" type="number" step="any" min="0" value="${live.carbs}" /></label>
+          <label>Fat g <input name="e_fat" type="number" step="any" min="0" value="${live.fat}" /></label>
         </div>
         <div class="ne-hint">Changes are saved to this food for next time.</div>
       </div>
@@ -1183,6 +1284,13 @@ function openAddModal(food, editingEntry = null) {
       <span>Carbs <b>${r(live.carbs * servings)}</b>g</span>
       <span>Fat <b>${r(live.fat * servings)}</b>g</span>
     `;
+    // Offer "Use as my serving" only when the typed amount is meaningfully
+    // different from the food's stored serving (>1% off).
+    const useBtn = $('#use-as-my-serving');
+    if (useBtn) {
+      const ref = Math.max(amount, size, 1);
+      useBtn.hidden = Math.abs(amount - size) <= 0.01 * ref;
+    }
   };
 
   amountInput.addEventListener('input', () => { lastEdited = 'amount'; update(); });
@@ -1190,19 +1298,60 @@ function openAddModal(food, editingEntry = null) {
   form.meal.addEventListener('change', update);
   form.date.addEventListener('change', update);
 
-  if (unitOptions) {
+  if (unitGroups) {
     form.amount_unit.addEventListener('change', () => {
       const oldUnit = displayUnit;
       const newUnit = form.amount_unit.value;
       // Reinterpret current amount as the prior unit, convert to the new one.
       const currentDisplay = Number(amountInput.value) || 0;
-      const inGrams = currentDisplay * UNIT_TO_G[oldUnit];
+      const inGrams = currentDisplay * unitToGrams(oldUnit);
       displayUnit = newUnit;
-      amountInput.value = formatDisplay(inGrams / UNIT_TO_G[newUnit], newUnit);
+      amountInput.value = formatDisplay(inGrams / unitToGrams(newUnit), newUnit);
       lastEdited = 'amount';
       update();
     });
   }
+
+  const useBtnEl = $('#use-as-my-serving');
+  if (useBtnEl) useBtnEl.addEventListener('click', () => {
+    const displayAmount = Number(amountInput.value) || 0;
+    const newSize = toNative(displayAmount, displayUnit);
+    if (!isFinite(newSize) || newSize <= 0) return;
+    const oldSize = live.serving_size > 0 ? live.serving_size : 1;
+    const ratio = newSize / oldSize;
+    live.serving_size = newSize;
+    live.calories *= ratio;
+    live.protein  *= ratio;
+    live.carbs    *= ratio;
+    live.fat      *= ratio;
+    // If the user logged in a unit category that doesn't match the food's
+    // native group (e.g. fl oz on a g-default food), record the food as the
+    // matching native ('ml' or 'g'). g and ml share the same numeric base
+    // (1 ml ~ 1 g) so live.serving_size doesn't need re-scaling.
+    const dispCat = MASS_KEYS.includes(displayUnit) ? 'mass'
+                  : VOLUME_KEYS.includes(displayUnit) ? 'volume' : null;
+    const natCat  = MASS_KEYS.includes(live.serving_unit) ? 'mass'
+                  : VOLUME_KEYS.includes(live.serving_unit) ? 'volume' : null;
+    if (dispCat && natCat && dispCat !== natCat) {
+      live.serving_unit = dispCat === 'mass' ? 'g' : 'ml';
+    }
+    $('#sub-cal').textContent = r(live.calories);
+    $('#sub-size').textContent = r(live.serving_size);
+    const subUnit = $('#sub-unit'); if (subUnit) subUnit.textContent = live.serving_unit;
+    const neUnit = document.querySelector('.ne-unit');
+    if (neUnit) neUnit.textContent = live.serving_unit;
+    if (form.e_serving_size) form.e_serving_size.value = live.serving_size;
+    if (form.e_calories)     form.e_calories.value     = r(live.calories);
+    if (form.e_protein)      form.e_protein.value      = r(live.protein);
+    if (form.e_carbs)        form.e_carbs.value        = r(live.carbs);
+    if (form.e_fat)          form.e_fat.value          = r(live.fat);
+    const hintText = $('#serving-hint-text');
+    if (hintText) hintText.textContent = `One serving: ${r(live.serving_size)} ${live.serving_unit}`;
+    servingsInput.value = '1';
+    lastEdited = 'amount';
+    update();
+    toast(`Set ${displayAmount} ${unitLabel(displayUnit)} as your serving`);
+  });
 
   $('#toggle-nutri').addEventListener('click', () => {
     nutriEdit.classList.toggle('hidden');
@@ -1289,6 +1438,7 @@ function openAddModal(food, editingEntry = null) {
 
     const changed =
       live.serving_size !== food.serving_size ||
+      live.serving_unit !== (food.serving_unit || 'g') ||
       live.calories     !== (food.calories || 0) ||
       live.protein      !== (food.protein  || 0) ||
       live.carbs        !== (food.carbs    || 0) ||
@@ -1303,6 +1453,7 @@ function openAddModal(food, editingEntry = null) {
       saved = await CT.db.saveFood({
         ...food,
         serving_size: live.serving_size,
+        serving_unit: live.serving_unit,
         calories: live.calories,
         protein:  live.protein,
         carbs:    live.carbs,
@@ -1332,12 +1483,14 @@ function openAddModal(food, editingEntry = null) {
       servings,
       serving_size: saved.serving_size,
       serving_unit: saved.serving_unit,
+      entry_amount: displayAmount,
+      entry_unit: displayUnit,
       calories: saved.calories * servings,
       protein:  saved.protein * servings,
       carbs:    saved.carbs * servings,
       fat:      saved.fat * servings
     });
-    await CT.db.updateLastAmount(saved.id, amount);
+    await CT.db.updateLastAmount(saved.id, amount, displayUnit);
 
     addModal.classList.add('hidden');
     state.date = fd.get('date');

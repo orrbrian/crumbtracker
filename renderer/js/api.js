@@ -80,7 +80,7 @@ function firstBrand(b) {
   return String(b).split(',')[0].trim();
 }
 
-const FIELDS = 'code,product_name,generic_name,brands,serving_size,serving_quantity,categories_tags,nutriments,image_small_url,image_front_small_url,image_url';
+const FIELDS = 'code,product_name,generic_name,brands,serving_size,serving_quantity,serving_quantity_unit,categories_tags,nutriments,image_small_url,image_front_small_url,image_url';
 
 // Typical single-serving portions by Open Food Facts category, used when the
 // product doesn't include its own serving size. Order matters (most specific first).
@@ -130,7 +130,10 @@ function pickServing(p) {
     return { ...parsed, inferred: 'product' };
   }
   const q = Number(p.serving_quantity);
-  if (Number.isFinite(q) && q > 0) return { size: q, unit: 'g', inferred: 'product' };
+  if (Number.isFinite(q) && q > 0) {
+    const u = String(p.serving_quantity_unit || 'g').toLowerCase();
+    return { size: q, unit: u === 'ml' ? 'ml' : 'g', inferred: 'product' };
+  }
   const fromCat = categoryDefault(p.categories_tags);
   if (fromCat) return fromCat;
   return { size: 100, unit: 'g', inferred: 'default' };

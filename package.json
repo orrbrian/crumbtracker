@@ -1,6 +1,6 @@
 {
   "name": "crumbtracker",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "Local calorie and nutrition tracker",
   "main": "main.js",
   "author": "CrumbTracker",

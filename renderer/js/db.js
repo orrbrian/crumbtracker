@@ -98,16 +98,21 @@ CT.db = {
       // original entry method.
       entry_method: food.entry_method || (prior && prior.entry_method) || null,
       last_amount: Number(food.last_amount) || (prior && Number(prior.last_amount)) || 0,
+      // Display unit the user last entered for this food (e.g. 'floz' for a
+      // soda whose serving is in ml). Used to restore the dropdown next time
+      // the food is logged. Preserved across updates.
+      last_unit: food.last_unit || (prior && prior.last_unit) || null,
       updated_at: Date.now()
     };
     await reqToPromise(store.put(record));
     return record;
   },
 
-  async updateLastAmount(foodId, amount) {
+  async updateLastAmount(foodId, amount, unit) {
     const food = await this.getFood(foodId);
     if (!food) return;
     food.last_amount = Number(amount) || 0;
+    if (unit) food.last_unit = unit;
     food.updated_at = Date.now();
     const store = await tx('foods', 'readwrite');
     await reqToPromise(store.put(food));
@@ -156,6 +161,12 @@ CT.db = {
       servings: Number(entry.servings) || 1,
       serving_size: Number(entry.serving_size) || 0,
       serving_unit: entry.serving_unit || 'g',
+      // The unit and amount the user actually typed (may differ from the
+      // food's native unit, e.g. fl oz for a soda whose serving is in ml).
+      // Used for display and to restore the dropdown on edit. Optional;
+      // older entries don't have these fields.
+      entry_amount: entry.entry_amount != null ? Number(entry.entry_amount) : null,
+      entry_unit: entry.entry_unit || null,
       calories: Number(entry.calories) || 0,
       protein: Number(entry.protein) || 0,
       carbs: Number(entry.carbs) || 0,
