@@ -1,6 +1,6 @@
 {
   "name": "crumbtracker",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "Local calorie and nutrition tracker",
   "main": "main.js",
   "author": "CrumbTracker",
@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@zxing/browser": "^0.1.5",
+    "electron-updater": "^6.8.3",
     "pica": "^9.0.1",
     "qrcode": "^1.5.4",
     "selfsigned": "^5.5.0",
@@ -39,7 +40,9 @@
       "icon": "renderer/assets/icon.png",
       "signtoolOptions": {
         "certificateSubjectName": "Open Source Developer Brian Orr",
-        "signingHashAlgorithms": ["sha256"]
+        "signingHashAlgorithms": [
+          "sha256"
+        ]
       },
       "target": [
         {
@@ -64,6 +67,13 @@
     },
     "portable": {
       "artifactName": "CrumbTracker-${version}-portable.exe"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "orrbrian",
+        "repo": "crumbtracker"
+      }
+    ]
   }
 }

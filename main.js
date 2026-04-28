@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const remoteScanner = require('./remote-scanner');
 const qrcode = require('qrcode');
+const { autoUpdater } = require('electron-updater');
 
 nativeTheme.themeSource = 'dark';
 
@@ -238,6 +239,50 @@ ipcMain.handle('viewfinder:cancel', () => {
   return true;
 });
 
+ipcMain.handle('app:getVersion', () => app.getVersion());
+
+function setupAutoUpdates() {
+  // The portable target can't be updated in place (electron-updater rewrites
+  // the NSIS install dir), and dev runs have no signed bundle to compare against.
+  if (!app.isPackaged) return;
+  if (process.env.PORTABLE_EXECUTABLE_DIR) return;
+
+  autoUpdater.autoDownload = false;
+  autoUpdater.on('error', (err) => console.error('[updater]', err));
+
+  autoUpdater.on('update-available', async (info) => {
+    if (!mainWindow) return;
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      buttons: ['Download', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Update available',
+      message: `CrumbTracker ${info.version} is available.`,
+      detail: 'Download the update now? The app will keep running while it downloads.'
+    });
+    if (response === 0) {
+      autoUpdater.downloadUpdate().catch(err => console.error('[updater] download', err));
+    }
+  });
+
+  autoUpdater.on('update-downloaded', async (info) => {
+    if (!mainWindow) return;
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      buttons: ['Restart now', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Update ready',
+      message: `CrumbTracker ${info.version} has been downloaded.`,
+      detail: 'Restart now to apply the update.'
+    });
+    if (response === 0) autoUpdater.quitAndInstall();
+  });
+
+  autoUpdater.checkForUpdates().catch(err => console.error('[updater] check', err));
+}
+
 app.whenReady().then(() => {
   // Auto-grant camera permission so the barcode scanner works without prompts.
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
@@ -245,6 +290,7 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+  setupAutoUpdates();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
