@@ -77,8 +77,11 @@ function confirmDialog({ title = 'Confirm', body = '', okLabel = 'OK', cancelLab
 // ------- ABOUT -------
 if (window.ct && window.ct.getAppVersion) {
   window.ct.getAppVersion().then(v => {
-    const el = document.getElementById('about-version');
-    if (el && v) el.textContent = `Version ${v}`;
+    if (!v) return;
+    const about = document.getElementById('about-version');
+    if (about) about.textContent = `Version ${v}`;
+    const navFoot = document.getElementById('nav-foot');
+    if (navFoot) navFoot.textContent = `Local · v${v}`;
   }).catch(() => {});
 }
 
